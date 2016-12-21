@@ -1,4 +1,4 @@
-package Loong::Mojo:: -serAgent;
+package Loong::Mojo::UserAgent;
 
 use Mojo::Base 'Mojo::UserAgent';
 use Mojo::URL;
