@@ -32,6 +32,44 @@ has io_loop   => sub { Mojo::IOLoop->new };
 has queue     => sub { Loong::Queue->new( mysql => 'mysql://root:root@127.0.0.1/minion_jobs' ) };
 has _loop_ids => sub { [] };
 
+my @beta_urls = (
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html"},
+);
+
 sub crawl {
     my ($self,$url) = @_;
 
@@ -41,30 +79,42 @@ sub crawl {
     my $worker;
     $worker = DEBUG ? undef : $self->queue->repair->worker;
 
-    my $id = Mojo::IOLoop->recurring(
-        0 => sub {
-            my $job;
+    if(ref $worker){
+        $self->on('crawl' => sub {
+                my $task_info = shift;
+                my $url = $task_info->{url};
 
-            if(!ref($worker)){
-                $job = { url => $url };
-            }else{
-                $job = $worker->register->dequeue(0);
+                return
+                     if $self->ua->active_conn >= $self->max_currency
+                  || !$url
+                  || $self->ua->active_host($url) >= $self->max_currency;
+                $self->process_job($url);
             }
-            if ( not $job ) {
-                Mojo::IOLoop->stop;
-                return;
-            }
-            my $url = $job->{url};
-            return
-                 if $self->ua->active_conn >= $self->max_currency
-              || !$url
-              || $self->ua->active_host($url) >= $self->max_currency;
+        );
+    }else{
+        my $id = Mojo::IOLoop->recurring(
+            0 => sub {
+                if(!ref($worker)){
+                    $job = shift @beta_urls;
+                }else{
+                    $job = $worker->register->dequeue(0);
+                }
+                if ( !$job and !$self->ua->active_conn) {
+                    $self->stop;
+                    return;
+                }
+                my $url = $job->{url};
+                return
+                     if $self->ua->active_conn >= $self->max_currency
+                  || !$url
+                  || $self->ua->active_host($url) >= $self->max_currency;
 
-            $self->process_job($url);
-        }
-    );
-    $self->emit('start');
-    push @{ $self->_loop_ids }, $id;
+                $self->process_job($url);
+            }
+        );
+        $self->emit('start');
+        push @{ $self->_loop_ids }, $id;
+    }
     Mojo::IOLoop->start unless Mojo::IOLoop->is_running;
 }
 
@@ -72,8 +122,8 @@ sub stop {
     my ($self) = @_;
     for my $id ( @{ $self->_loop_ids } ) {
         Mojo::IOLoop->remove($id);
-        Mojo::IOLoop->stop;
     }
+    Mojo::IOLoop->stop;
 }
 
 sub process_job {
