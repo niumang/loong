@@ -6,8 +6,8 @@ use Test::More;
 use Loong::Crawler;
 use Loong::Scraper::Hhssee;
 
-my $loong = Loong::Crawler->new();
-
-$loong->crawl('http://www.hhssee.com');
+my $loong = Loong::Crawler->new(seed => 'hhssee.com');
+$loong->init;
+$loong->fuck;
 
 done_testing();

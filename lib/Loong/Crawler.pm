@@ -4,11 +4,10 @@ use Carp;
 use Mojo::Base 'Mojo::EventEmitter';
 use Mojo::URL;
 use Mojo::DOM;
-use Mojo::Utils qw(dumper);
+use Mojo::Util qw(dumper);
 
 use Loong::Mojo::Log;
 use Loong::Mojo::UserAgent;
-
 
 #use Loong::Mojo::UserAgent::Proxy;
 #use Loong::Mojo::UserAgent::CookieJar;
@@ -20,9 +19,10 @@ use Loong::Mojo::Exception;
 use constant MAX_CURRENCY => 100;
 use constant DEBUG        => $ENV{LOONG_DEBUG};
 
+has 'seed' => sub { $_[1] =~ s{http://}{}g; $_[1] };
 has max_currency => sub { MAX_CURRENCY };
 has log          => sub { Loong::Mojo::Log->new };
-has subcriber;
+
 # TODO suport save cookie cache
 #has cookie => sub { Loong::Mojo::UserAgent::CookieJar->new };
 has ua           => sub { Loong::Mojo::UserAgent->new };
@@ -31,56 +31,63 @@ has extra_config => sub { {} };
 
 # TODO support proxy for http request
 #has proxy => sub { Loong::Mojo::UserAgent::Proxy->new };
-has ua_name   => sub { 'fuck' };
-has io_loop   => sub { Mojo::IOLoop->new };
-has queue     => sub { Loong::Queue->new( mysql => 'mysql://root:root@127.0.0.1/minion_jobs' ) };
-has worker => sub { shift->queue->repair->worker };
+has ua_name => sub { 'fuck' };
+has io_loop => sub { Mojo::IOLoop->new };
+has queue   => sub {
+    Loong::Queue->new( mysql => 'mysql://root:root@127.0.0.1/minion_jobs' );
+};
+has worker    => sub { shift->queue->repair->worker };
 has _loop_ids => sub { [] };
 
 my @beta_urls = (
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
-    { url => "http://www.hhssee.com/manhua10492.html"},
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
+    { url => "http://www.hhssee.com/manhua10492.html" },
 );
 
-sub new{
+sub new {
     my $self = shift->SUPER::new(@_);
 
-    $self->on( crawl => sub {
+    die "种子地址必须是网站根入口，模式例如: qq.com. ps:如果需要调试请打开debug"
+      if $self->seed =~ m{/};
+    $self->first_blood() if $self->seed;
+    $self->on(
+        crawl => sub {
             my ($task_info) = @_;
             my $url = $task_info->{url};
+
             return
                  if $self->ua->active_conn >= $self->max_currency
               || !$url
@@ -88,24 +95,37 @@ sub new{
             $self->process_job($url);
         }
     );
-    $self->on( empty => sub { say "没有任务了！" };
-    Carp::croak "请输入你需要抓取的网站域名" unless DEBUG;
+    $self->on( empty => sub { say "没有任务了！" } );
+    Carp::croak "请输入你需要抓取的网站域名,并且打开debug模式调试单个链接!"
+        unless DEBUG;
     return $self;
 }
 
-sub crawl {
-    my ($self,$url) = @_;
-    $url ||= $self->subcriber;
-
-    return $self->beta_crawl($url) if DEBUG;
-
-    my $id = Mojo::IOLoop->recurring(
-        $self->emit('dequeue', $self->subcriber) unless DEBUG;
+sub first_blood {
+    my ($self) = @_;
+    $self->log->debug("加入种子任务: http://".$self->seed);
+    $self->queue->enqueue(
+        'crawl_' . $self->seed,
+        [ { url => $self->seed, extra_config => $self->extra_config } ] => {
+            priority => $self->extra_config->{priority} || 0
+        }
     );
-    push @{ $self->_loop_ids }, $id;
 }
 
-sub beta_crawl{ shift->process_job(@_) }
+sub init{
+    my ( $self, $url ) = @_;
+    $url ||= $self->seed;
+
+    my $id = Mojo::IOLoop->recurring(
+        0 => sub {
+            $self->emit( 'dequeue', 'crawl_' . $self->subcriber ) unless DEBUG;
+        },
+    );
+    push @{ $self->_loop_ids }, $id;
+    return $self;
+}
+
+sub beta_crawl { shift->process_job(@_) }
 
 sub stop {
     my ($self) = @_;
@@ -115,7 +135,7 @@ sub stop {
     Mojo::IOLoop->stop;
 }
 
-sub fuck{ Mojo::IOLoop->run unless Mojo::IOLoop->is_running; }
+sub fuck { Mojo::IOLoop->start unless Mojo::IOLoop->is_running; }
 
 sub process_job {
     my ( $self, $url ) = @_;
@@ -127,22 +147,22 @@ sub process_job {
     $context->{extra_config} = $self->extra_config;
     $context->{tx}           = $tx;
 
-    $self->log->debug(" extra_config = ".dumper($extra_config));
-    $self->log->debug(" context = ".dumper($context));
+    $self->log->debug( "extra_config = " . dumper( $context->{extra_config} ) );
 
     $self->ua->start(
         $tx => sub {
             my ( $ua, $tx ) = @_;
+
             # TODO process http download failed ,enqueue url to next task
             my $ret = $self->scrape( $tx, $context );
 
             return if DEBUG;
 
             my $nexts = $ret->{nexts};
-            while( my $item = shift @$nexts){
-                my $queue = Mojo::URL->new($item->{url})->ihost;
+            while ( my $item = shift @$nexts ) {
+                my $queue = Mojo::URL->new( $item->{url} )->ihost;
                 $self->log->debug("攥取下一个页面 $item->{url}");
-                $self->emit('enqueue',$queue,$item) unless DEBUG;
+                $self->emit( 'enqueue', $queue, $item ) unless DEBUG;
             }
         },
     );
@@ -166,15 +186,28 @@ sub scrape {
     if ( $type && $type =~ qr{^(text|application)/(html|xml|xhtml)} ) {
         eval {
             # TODO decode_body
-            my $dom = Mojo::DOM->new($res->body);
+            my $dom = Mojo::DOM->new( $res->body );
             $pkg->import;
             my $scraper = $pkg->new;
-            my $ret = $scraper->index( $method => $url )->scrape( $dom, $context );
-            $self->log->debug("解析 url => $url dom => ".dumper($ret);
+            my $ret =
+              $scraper->index( $method => $url )->scrape( $dom, $context );
+            $self->log->debug( "解析 url => $url dom => " . dumper($ret) );
         };
+        if ($@) {
+            $self->log->debug("解析 html 文档失败 $@");
+        }
     }
 
     return $ret;
+}
+
+sub continue_with_scraped {
+    my ( $self, $ret, $ctx ) = @_;
+    return unless $ret->{nexts};
+    for my $next ( @{ $ret->{nexts} } ) {
+        $self->queue->enqueue( 'crawl_' . $self->subcriber,
+            [$next] => { priority => $ctx->{priority} || 0 } );
+    }
 }
 
 sub prepare_http {
@@ -191,8 +224,8 @@ sub prepare_http {
     my @args = ( $method, $url );
     push( @args, form    => $_ ) if $form;
     push( @args, headers => $_ ) if $headers;
-    
-    $self->log->debug("准备好 http 参数".dumper(\@args));
+
+    $self->log->debug( "准备好 http 参数" . dumper( \@args ) );
     return $self->ua->build_tx(@args);
 }
 

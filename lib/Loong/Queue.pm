@@ -7,13 +7,8 @@ use Loong::Mojo::Log;
 has log => sub { Loong::Mojo::Log->new };
 
 sub new {
-    my $self = shift->SUPPER::new(@_);
-
-    $self->on('enqueue' => sub { _enqueue(@_) });
-    $self->on('dequeue' => sub { _enqueue(@_) });
-}
-
-sub _enqueue{
+    my $self = shift->SUPER::new(@_);
+    return $self;
 }
 
 1;
