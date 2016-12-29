@@ -3,9 +3,12 @@ package Loong::Scraper;
 use Mojo::Base -base;
 use Data::Dumper;
 
+use Loong::Mojo::Log;
+
 has key => 0;
 has method => 'get';
 has domain => '';
+has log => sub { Loong::Mojo::Log->new };
 
 sub scrape{
     my $self = shift;

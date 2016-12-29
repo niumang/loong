@@ -7,6 +7,7 @@ use Mojo::DOM;
 use Mojo::Util qw(dumper);
 use YAML qw(Dump);
 use Mojo::Loader qw(load_class);
+use Encode qw(decode_utf8);
 
 use Loong::Mojo::Log;
 use Loong::Mojo::UserAgent;
@@ -43,60 +44,16 @@ has queue => sub {
 has worker    => sub { shift->queue->repair->worker };
 has _loop_ids => sub { [] };
 
-my @beta_urls = (
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-    { url => "http://www.hhssee.com/manhua10492.html" },
-);
-
 sub new {
     my $self = shift->SUPER::new(@_);
 
-    if ( !DEBUG and !$self->seed ) {
-        $self->log->error( __LINE__
-              . " 种子地址必须是网站根入口，"
-              . " 模式例如: qq.com. ps:如果需要调试请打开debug" );
-         die;
-    }
-    if ( $self->seed ) {
-        $self->first_blood;
-        $self->log->debug("添加task回调任务");
-        $self->queue->add_task(
-            $self->task_name => sub { shift->emit('crawl',shift) }
-        );
-    }
+    return $self if DEBUG;
+
+    $self->first_blood and
+    $self->log->debug("添加task回调任务");
+    $self->queue->add_task(
+        $self->task_name => sub { shift->emit('crawl',shift) }
+    );
     $self->on(
         empty => sub {
             $self->log->debug("没有任务了！");
@@ -180,13 +137,12 @@ sub process_job {
             # TODO process http download failed ,enqueue url to next task
             my $ret = $self->scrape( $tx, $context );
 
-            return if DEBUG;
+            return $self->stop if DEBUG;
 
             my $nexts = $ret->{nexts};
             while ( my $item = shift @$nexts ) {
                 $self->log->debug("攥取下一个页面 $item->{url}");
-                $self->continue_with_scraped( $ret->{url}, $item,
-                    $self->extra_config );
+                $self->continue_with_scraped( $ret->{url}, $item, $self->extra_config );
             }
         },
     );
@@ -202,19 +158,19 @@ sub scrape {
     my $url    = $tx->req->url;
     my $type   = $res->headers->content_type;
     my $method = $tx->req->method;
-    my $domain = Mojo::URL->new($url)->ihost;
+    my $domain = $self->seed;
     $domain =~ s/www.//g;
-    my $pkg = 'Loong::Scraper::' . ucfirst( [ split( '\.', $self->seed) ]->[0] );
+    my $pkg = 'Loong::Scraper::' . ucfirst( [ split( '\.', $domain) ]->[0] );
     $self->log->debug("查找到解析的模块 $pkg");
 
     if ( $type && $type =~ qr{^(text|application)/(html|xml|xhtml)} ) {
         eval {
             # TODO decode_body
-            my $dom = Mojo::DOM->new( $res->body );
+            my $dom = Mojo::DOM->new( decode_utf8($res->body) );
             load_class $pkg;
             my $scraper = $pkg->new;
             $ret =
-              $scraper->index( $method => $url )->scrape( $dom, $context );
+              $scraper->find( $method => $url )->scrape( $dom, $context );
             $self->log->debug( "解析 url => $url  => " . Dump($ret) );
         };
         if ($@) {
@@ -256,7 +212,7 @@ sub prepare_http {
 }
 
 sub shuffle {
-    return 0;
+    return rand(2);
 }
 
 sub clock_speed {
