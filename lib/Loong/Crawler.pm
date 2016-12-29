@@ -5,6 +5,8 @@ use Mojo::Base 'Mojo::EventEmitter';
 use Mojo::URL;
 use Mojo::DOM;
 use Mojo::Util qw(dumper);
+use YAML qw(Dump);
+use Mojo::Loader qw(load_class);
 
 use Loong::Mojo::Log;
 use Loong::Mojo::UserAgent;
@@ -31,9 +33,11 @@ has extra_config => sub { {} };
 
 # TODO support proxy for http request
 #has proxy => sub { Loong::Mojo::UserAgent::Proxy->new };
-has ua_name => sub { 'fuck' };
-has io_loop => sub { Mojo::IOLoop->new };
-has queue   => sub {
+has ua_name      => sub { 'fuck' };
+has io_loop      => sub { Mojo::IOLoop->new };
+has task_name    => sub { 'crawl' };
+has 'queue_name' => sub { 'crawl_' . ( shift->seed || '' ) };
+has queue => sub {
     Loong::Queue->new( mysql => 'mysql://root:root@127.0.0.1/minion_jobs' );
 };
 has worker    => sub { shift->queue->repair->worker };
@@ -80,45 +84,62 @@ my @beta_urls = (
 sub new {
     my $self = shift->SUPER::new(@_);
 
-    die "种子地址必须是网站根入口，模式例如: qq.com. ps:如果需要调试请打开debug"
-      if $self->seed =~ m{/};
-    $self->first_blood() if $self->seed;
+    if ( !DEBUG and !$self->seed ) {
+        $self->log->error( __LINE__
+              . " 种子地址必须是网站根入口，"
+              . " 模式例如: qq.com. ps:如果需要调试请打开debug" );
+         die;
+    }
+    if ( $self->seed ) {
+        $self->first_blood;
+        $self->log->debug("添加task回调任务");
+        $self->queue->add_task(
+            $self->task_name => sub { shift->emit('crawl',shift) }
+        );
+    }
     $self->on(
-        crawl => sub {
-            my ($task_info) = @_;
+        empty => sub {
+            $self->log->debug("没有任务了！");
+            $self->stop;
+        }
+    );
+    return $self;
+}
+
+sub first_blood {
+    my ($self) = @_;
+    my $url = $self->seed=~ m/^http/ ? $self->seed : 'http://'.$self->seed;
+    $self->log->debug( "加入种子任务: url => $url");
+    $self->queue->enqueue(
+        'crawl',
+        [ { url => $url, extra_config => $self->extra_config } ] => {
+            priority => $self->extra_config->{priority} || 0,
+            queue => $self->queue_name,
+        }
+    );
+}
+
+sub init {
+    my ( $self, $url ) = @_;
+    $url ||= $self->seed;
+
+    my $id = Mojo::IOLoop->recurring(
+        0 => sub {
+            my $job = $self->worker->register->dequeue( $self->shuffle,
+                { queues => [ $self->queue_name ] } );
+
+            return unless $job;
+
+            my $task_info = $job->args->[0];
             my $url = $task_info->{url};
 
             return
                  if $self->ua->active_conn >= $self->max_currency
               || !$url
               || $self->ua->active_host($url) >= $self->max_currency;
-            $self->process_job($url);
-        }
-    );
-    $self->on( empty => sub { say "没有任务了！" } );
-    Carp::croak "请输入你需要抓取的网站域名,并且打开debug模式调试单个链接!"
-        unless DEBUG;
-    return $self;
-}
 
-sub first_blood {
-    my ($self) = @_;
-    $self->log->debug("加入种子任务: http://".$self->seed);
-    $self->queue->enqueue(
-        'crawl_' . $self->seed,
-        [ { url => $self->seed, extra_config => $self->extra_config } ] => {
-            priority => $self->extra_config->{priority} || 0
-        }
-    );
-}
-
-sub init{
-    my ( $self, $url ) = @_;
-    $url ||= $self->seed;
-
-    my $id = Mojo::IOLoop->recurring(
-        0 => sub {
-            $self->emit( 'dequeue', 'crawl_' . $self->subcriber ) unless DEBUG;
+              #$self->ua->get('qq.com' => sub { say "get qq.com =====" });
+            $self->process_job( $url, $task_info->{extra_config} );
         },
     );
     push @{ $self->_loop_ids }, $id;
@@ -130,15 +151,18 @@ sub beta_crawl { shift->process_job(@_) }
 sub stop {
     my ($self) = @_;
     for my $id ( @{ $self->_loop_ids } ) {
-        Mojo::IOLoop->remove($_) for @$self->_loop_ids;
+        Mojo::IOLoop->remove($_) for @{ $self->_loop_ids };
     }
     Mojo::IOLoop->stop;
 }
 
-sub fuck { Mojo::IOLoop->start unless Mojo::IOLoop->is_running; }
+sub fuck {
+    my ($self) = @_;
+    Mojo::IOLoop->start unless Mojo::IOLoop->is_running;
+}
 
 sub process_job {
-    my ( $self, $url ) = @_;
+    my ( $self, $url, $extra_config ) = @_;
 
     my $tx      = $self->prepare_http($url);
     my $context = {};
@@ -146,9 +170,9 @@ sub process_job {
     $context->{emitter}      = $self->io_loop;
     $context->{extra_config} = $self->extra_config;
     $context->{tx}           = $tx;
+    $context->{base} = $self->seed;
 
-    $self->log->debug( "extra_config = " . dumper( $context->{extra_config} ) );
-
+    $self->log->debug( "开始抓取 url => $url");
     $self->ua->start(
         $tx => sub {
             my ( $ua, $tx ) = @_;
@@ -160,9 +184,9 @@ sub process_job {
 
             my $nexts = $ret->{nexts};
             while ( my $item = shift @$nexts ) {
-                my $queue = Mojo::URL->new( $item->{url} )->ihost;
                 $self->log->debug("攥取下一个页面 $item->{url}");
-                $self->emit( 'enqueue', $queue, $item ) unless DEBUG;
+                $self->continue_with_scraped( $ret->{url}, $item,
+                    $self->extra_config );
             }
         },
     );
@@ -180,18 +204,18 @@ sub scrape {
     my $method = $tx->req->method;
     my $domain = Mojo::URL->new($url)->ihost;
     $domain =~ s/www.//g;
-    my $pkg = 'Loong::Scraper::' . ucfirst( [ split( '\.', $domain ) ]->[0] );
+    my $pkg = 'Loong::Scraper::' . ucfirst( [ split( '\.', $self->seed) ]->[0] );
     $self->log->debug("查找到解析的模块 $pkg");
 
     if ( $type && $type =~ qr{^(text|application)/(html|xml|xhtml)} ) {
         eval {
             # TODO decode_body
             my $dom = Mojo::DOM->new( $res->body );
-            $pkg->import;
+            load_class $pkg;
             my $scraper = $pkg->new;
-            my $ret =
+            $ret =
               $scraper->index( $method => $url )->scrape( $dom, $context );
-            $self->log->debug( "解析 url => $url dom => " . dumper($ret) );
+            $self->log->debug( "解析 url => $url  => " . Dump($ret) );
         };
         if ($@) {
             $self->log->debug("解析 html 文档失败 $@");
@@ -202,12 +226,14 @@ sub scrape {
 }
 
 sub continue_with_scraped {
-    my ( $self, $ret, $ctx ) = @_;
-    return unless $ret->{nexts};
-    for my $next ( @{ $ret->{nexts} } ) {
-        $self->queue->enqueue( 'crawl_' . $self->subcriber,
-            [$next] => { priority => $ctx->{priority} || 0 } );
-    }
+    my ( $self, $previous, $next, $ctx ) = @_;
+
+    my $args = {
+        url          => $next->{url},
+        previous_url => $previous,
+        extra_config => $ctx,
+    };
+    $self->queue->enqueue( 'crawl', [$args], { queue => $self->queue_name } );
 }
 
 sub prepare_http {
@@ -230,6 +256,7 @@ sub prepare_http {
 }
 
 sub shuffle {
+    return 0;
 }
 
 sub clock_speed {

@@ -10,7 +10,7 @@ has domain => '';
 sub scrape{
     my $self = shift;
     Carp::croak "invalid url_pattern " unless $self->key;
-    return $self->scraper->{$self->key}->{$self->method}->{cb}->(@_);
+    return $self->scraper->{$self->key}->{$self->method}->{cb}->($self,@_);
 }
 
 1;
