@@ -34,10 +34,10 @@ has extra_config => sub { {} };
 
 # TODO support proxy for http request
 #has proxy => sub { Loong::Mojo::UserAgent::Proxy->new };
-has ua_name      => sub { 'fuck' };
-has io_loop      => sub { Mojo::IOLoop->new };
-has task_name    => sub { 'crawl' };
-has 'queue_name' => sub { 'crawl_' . ( shift->seed || '' ) };
+has ua_name    => sub { 'fuck' };
+has io_loop    => sub { Mojo::IOLoop->new };
+has task_name  => sub { 'crawl' };
+has queue_name => sub { 'crawl_' . ( shift->seed || '' ) };
 has queue => sub {
     Loong::Queue->new( mysql => 'mysql://root:root@127.0.0.1/minion_jobs' );
 };
@@ -49,13 +49,9 @@ sub new {
 
     return $self if DEBUG;
 
-    $self->first_blood and
-    $self->log->debug("添加task回调任务");
-    $self->queue->add_task(
-        $self->task_name => sub { shift->emit('crawl',shift) }
-    );
-    $self->on(
-        empty => sub {
+    $self->first_blood and $self->log->debug("添加task回调任务");
+    $self->queue->add_task( $self->task_name => sub { shift->emit( 'crawl', shift ) } );
+    $self->on( empty => sub {
             $self->log->debug("没有任务了！");
             $self->stop;
         }
@@ -65,8 +61,8 @@ sub new {
 
 sub first_blood {
     my ($self) = @_;
-    my $url = $self->seed=~ m/^http/ ? $self->seed : 'http://'.$self->seed;
-    $self->log->debug( "加入种子任务: url => $url");
+    my $url = $self->seed =~ m/^http/ ? $self->seed : 'http://' . $self->seed;
+    $self->log->debug("加入种子任务: url => $url");
     $self->queue->enqueue(
         'crawl',
         [ { url => $url, extra_config => $self->extra_config } ] => {
@@ -88,14 +84,13 @@ sub init {
             return unless $job;
 
             my $task_info = $job->args->[0];
-            my $url = $task_info->{url};
+            my $url       = $task_info->{url};
 
             return
                  if $self->ua->active_conn >= $self->max_currency
               || !$url
               || $self->ua->active_host($url) >= $self->max_currency;
 
-              #$self->ua->get('qq.com' => sub { say "get qq.com =====" });
             $self->process_job( $url, $task_info->{extra_config} );
         },
     );
@@ -113,10 +108,7 @@ sub stop {
     Mojo::IOLoop->stop;
 }
 
-sub fuck {
-    my ($self) = @_;
-    Mojo::IOLoop->start unless Mojo::IOLoop->is_running;
-}
+sub fuck { Mojo::IOLoop->start unless Mojo::IOLoop->is_running }
 
 sub process_job {
     my ( $self, $url, $extra_config ) = @_;
@@ -127,14 +119,12 @@ sub process_job {
     $context->{emitter}      = $self->io_loop;
     $context->{extra_config} = $self->extra_config;
     $context->{tx}           = $tx;
-    $context->{base} = $self->seed;
+    $context->{base}         = $self->seed;
 
-    $self->log->debug( "开始抓取 url => $url");
+    $self->log->debug("开始抓取 url => $url");
     $self->ua->start(
         $tx => sub {
             my ( $ua, $tx ) = @_;
-
-            # TODO process http download failed ,enqueue url to next task
             my $ret = $self->scrape( $tx, $context );
 
             return $self->stop if DEBUG;
@@ -142,7 +132,8 @@ sub process_job {
             my $nexts = $ret->{nexts};
             while ( my $item = shift @$nexts ) {
                 $self->log->debug("攥取下一个页面 $item->{url}");
-                $self->continue_with_scraped( $ret->{url}, $item, $self->extra_config );
+                $self->continue_with_scraped( $ret->{url}, $item,
+                    $self->extra_config );
             }
         },
     );
@@ -160,17 +151,15 @@ sub scrape {
     my $method = $tx->req->method;
     my $domain = $self->seed;
     $domain =~ s/www.//g;
-    my $pkg = 'Loong::Scraper::' . ucfirst( [ split( '\.', $domain) ]->[0] );
+    my $pkg = 'Loong::Scraper::' . ucfirst( [ split( '\.', $domain ) ]->[0] );
     $self->log->debug("查找到解析的模块 $pkg");
 
     if ( $type && $type =~ qr{^(text|application)/(html|xml|xhtml)} ) {
         eval {
-            # TODO decode_body
-            my $dom = Mojo::DOM->new( decode_utf8($res->body) );
+            # TODO add scraper cached in memory
             load_class $pkg;
             my $scraper = $pkg->new;
-            $ret =
-              $scraper->find( $method => $url )->scrape( $dom, $context );
+            $ret = $scraper->find( $method => $url )->scrape( $res, $context );
             $self->log->debug( "解析 url => $url  => " . Dump($ret) );
         };
         if ($@) {
