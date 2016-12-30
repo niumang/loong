@@ -29,7 +29,7 @@ sub import{
         my $self = shift;
         return $scraper;
     };
-    monkey_patch $caller, 'index' => sub {
+    monkey_patch $caller, 'find' => sub {
         my ($self,$method,$url) = @_;
         my $host = Mojo::URL->new($url)->host;
         my ($key) = grep { $url=~ m/$_/ } keys %$scraper;

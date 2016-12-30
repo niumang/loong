@@ -1,4 +1,4 @@
-package Loong::Mojo:: -serAgent;
+package Loong::Mojo::UserAgent;
 
 use Mojo::Base 'Mojo::UserAgent';
 use Mojo::URL;
@@ -35,14 +35,10 @@ sub active_host {
 }
 
 sub _host_key {
-    state $well_known_ports = { http => 80, https => 443 };
     my $url = shift;
-    $url = Mojo::URL->new($url) unless ref $url;
-    return
-      unless $url->is_abs && ( my $wkp = $well_known_ports->{ $url->scheme } );
+    $url='http://'.$url unless $url=~ m/http/;
+    $url = Mojo::URL->new($url) unless ref($url);
     my $key = $url->scheme . '://' . $url->ihost;
-    return $key unless ( my $port = $url->port );
-    $key .= ':' . $port if $port != $wkp;
     return $key;
 }
 
