@@ -110,7 +110,8 @@ get '/page\d+/1.html.s=\d+' => sub {
     return $ret;
 };
 
-get '/page\d+/\d+.html.s=\d+.long=' => sub {
+# http://www.hhssee.com/page188637/14.html?s=11&loong=&d=0
+get '/page\d+/\d+.html.s=\d+.loong=' => sub {
     my ($self,$dom,$ctx) = @_;
 
     my $url = $ctx->{tx}->req->{url};

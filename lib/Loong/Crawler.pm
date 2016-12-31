@@ -7,42 +7,39 @@ use Mojo::DOM;
 use Mojo::Util qw(dumper);
 use YAML qw(Dump);
 use Mojo::Loader qw(load_class);
-use Encode qw(decode_utf8);
-
+use Digest::MD5 qw(md5_hex);
 use Loong::Mojo::Log;
 use Loong::Mojo::UserAgent;
 
 #use Loong::Mojo::UserAgent::Proxy;
 #use Loong::Mojo::UserAgent::CookieJar;
+use Loong::Mango;
 use Loong::Queue;
 use Loong::Queue::Worker;
 use Loong::Utils::Scraper;
 use Loong::Mojo::Exception;
 
-use constant MAX_CURRENCY => 100;
+use constant MAX_CURRENCY => 20;
 use constant DEBUG        => $ENV{LOONG_DEBUG};
 
-has 'seed' => sub { $_[1] =~ s{http://}{}g; $_[1] };
-has max_currency => sub { MAX_CURRENCY };
-has log          => sub { Loong::Mojo::Log->new };
-
 # TODO suport save cookie cache
-#has cookie => sub { Loong::Mojo::UserAgent::CookieJar->new };
-has ua           => sub { Loong::Mojo::UserAgent->new };
-has url          => sub { Mojo::URL->new };
-has extra_config => sub { {} };
-
 # TODO support proxy for http request
-#has proxy => sub { Loong::Mojo::UserAgent::Proxy->new };
-has ua_name    => sub { 'fuck' };
-has io_loop    => sub { Mojo::IOLoop->new };
-has task_name  => sub { 'crawl' };
-has queue_name => sub { 'crawl_' . ( shift->seed || '' ) };
-has queue => sub {
-    Loong::Queue->new( mysql => 'mysql://root:root@127.0.0.1/minion_jobs' );
-};
-has worker    => sub { shift->queue->repair->worker };
-has _loop_ids => sub { [] };
+# TODO support db name for seed
+has 'seed' => sub { $_[1] =~ s{http://}{}g; $_[1] };
+has max_currency    => sub { MAX_CURRENCY };
+has log             => sub { Loong::Mojo::Log->new };
+has ua              => sub { Loong::Mojo::UserAgent->new };
+has url             => sub { Mojo::URL->new };
+has extra_config    => sub { {} };
+has ua_name         => sub { 'fuck' };
+has io_loop         => sub { Mojo::IOLoop->new };
+has task_name       => sub { 'crawl' };
+has queue_name      => sub { 'crawl_' . ( shift->seed || '' ) };
+has queue           => sub { Loong::Queue->new( mysql => 'mysql://root:root@127.0.0.1/minion_jobs' ) };
+has worker          => sub { shift->queue->repair->worker };
+has mango           => sub { Loong::Mango->new('mongodb://localhost:27017') };
+has collection      => sub { $_[0]->mango->db('hhssee')->collection('counter')};
+has _loop_ids       => sub { [] };
 
 sub new {
     my $self = shift->SUPER::new(@_);
@@ -50,8 +47,10 @@ sub new {
     return $self if DEBUG;
 
     $self->first_blood and $self->log->debug("添加task回调任务");
-    $self->queue->add_task( $self->task_name => sub { shift->emit( 'crawl', shift ) } );
-    $self->on( empty => sub {
+    $self->queue->add_task(
+        $self->task_name => sub { shift->emit( 'crawl', shift ) } );
+    $self->on(
+        empty => sub {
             $self->log->debug("没有任务了！");
             $self->stop;
         }
@@ -102,9 +101,7 @@ sub beta_crawl { shift->process_job(@_) }
 
 sub stop {
     my ($self) = @_;
-    for my $id ( @{ $self->_loop_ids } ) {
-        Mojo::IOLoop->remove($_) for @{ $self->_loop_ids };
-    }
+    Mojo::IOLoop->remove($_) for @{ $self->_loop_ids };
     Mojo::IOLoop->stop;
 }
 
@@ -125,16 +122,18 @@ sub process_job {
     $self->ua->start(
         $tx => sub {
             my ( $ua, $tx ) = @_;
-            my $ret = $self->scrape( $tx, $context );
-
+            my $ret = {};
+            eval { $ret = $self->scrape( $tx, $context ) };
+            $ret->{url} = "$url";
+            $ret->{url_md5} = md5_hex("$url");
             return $self->stop if DEBUG;
 
-            my $nexts = $ret->{nexts};
-            while ( my $item = shift @$nexts ) {
-                $self->log->debug("攥取下一个页面 $item->{url}");
+            for my $item(@{ $ret->{nexts} }){
+                $self->log->debug("获取下一个页面 $item->{url}");
                 $self->continue_with_scraped( $ret->{url}, $item,
                     $self->extra_config );
             }
+            return $self->mango->save_crawl_info( $ret, { collection => $self->collection } );
         },
     );
 }
@@ -184,6 +183,7 @@ sub continue_with_scraped {
 sub prepare_http {
     my ( $self, $url ) = @_;
 
+    # TODO prepare cookie proxy pre-request post request
     #$self->emit($_) for qw( cookie ip_pool pre_form);
     my $method  = $self->extra_config->{method} || 'get';
     my $headers = $self->extra_config->{headers};
