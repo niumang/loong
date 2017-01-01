@@ -35,10 +35,18 @@ has ua_name         => sub { 'fuck' };
 has io_loop         => sub { Mojo::IOLoop->new };
 has task_name       => sub { 'crawl' };
 has queue_name      => sub { 'crawl_' . ( shift->seed || '' ) };
-has queue           => sub { Loong::Queue->new( mysql => 'mysql://root:root@127.0.0.1/minion_jobs' ) };
+has queue           => sub { Loong::Queue->new( mysql => 'mysql://root:root@127.0.0.1/task' ) };
 has worker          => sub { shift->queue->repair->worker };
 has mango           => sub { Loong::Mango->new('mongodb://localhost:27017') };
-has collection      => sub { $_[0]->mango->db('hhssee')->collection('counter')};
+has collection      => sub {
+    my ($self) = @_;
+    my $db = $self->seed;
+
+    # 替换掉域名里面的点和 www com，防止生成不合法的 db
+    $db=~ s/www.//g;
+    $db=~ s/.com//g;
+    $db=~ s/\./_/g;
+    $_[0]->mango->db($db)->collection('counter')};
 has _loop_ids       => sub { [] };
 
 sub new {
@@ -177,7 +185,8 @@ sub continue_with_scraped {
         previous_url => $previous,
         extra_config => $ctx,
     };
-    $self->queue->enqueue( 'crawl', [$args], { queue => $self->queue_name } );
+    $self->queue->enqueue( 'crawl', [$args], { queue => $self->queue_name } )
+        unless DEBUG;
 }
 
 sub prepare_http {

@@ -20,22 +20,15 @@ sub save_crawl_info {
         update => { $set    => $crawled }
     };
 
-    my $doc = $collection->find_one({ url_md5 => $crawled->{url_md5}});
-    if($doc){
-        $collection->remove($doc->{_id});
-    }
-    return $collection->insert($crawled);
-=pod
     return $collection->find_and_modify(
         $opts => sub {
             my ( $collection, $err, $doc ) = @_;
             # TODO support failed insert db
-            print "mango saved $crawled->{url} ".Dump($crawled)."\n";
+            print "mango saved $crawled->{url} \n";
             return
               defined $doc ? $doc : $collection->insert( $crawled => sub { } );
         }
     );
-=cut
 }
 
 
