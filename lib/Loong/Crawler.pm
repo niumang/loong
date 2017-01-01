@@ -1,18 +1,19 @@
 package Loong::Crawler;
 
 use Carp;
+use YAML qw(Dump);
 use Mojo::Base 'Mojo::EventEmitter';
 use Mojo::URL;
 use Mojo::DOM;
 use Mojo::Util qw(dumper);
-use YAML qw(Dump);
+use Mojo::Loader qw(load_class);
 use Mojo::Loader qw(load_class);
 use Digest::MD5 qw(md5_hex);
-use Loong::Mojo::Log;
-use Loong::Mojo::UserAgent;
 
 #use Loong::Mojo::UserAgent::Proxy;
 #use Loong::Mojo::UserAgent::CookieJar;
+use Loong::Mojo::Log;
+use Loong::Mojo::UserAgent;
 use Loong::Mango;
 use Loong::Queue;
 use Loong::Config;
@@ -37,6 +38,7 @@ has extra_config    => sub { {} };
 has ua_name         => sub { 'fuck' };
 has io_loop         => sub { Mojo::IOLoop->new };
 has task_name       => sub { 'crawl' };
+has _loop_ids       => sub { [] };
 has queue_name      => sub { 'crawl_' . ( shift->seed || '' ) };
 has queue           => sub { Loong::Queue->new(
         mysql => (shift->config->mysql_uri) || 'mysql://root:root@127.0.0.1/task' ) };
@@ -50,8 +52,8 @@ has collection      => sub {
     $db=~ s/www.//g;
     $db=~ s/.com//g;
     $db=~ s/\./_/g;
-    $_[0]->mango->db($db)->collection('counter')};
-has _loop_ids       => sub { [] };
+    $_[0]->mango->db($db)->collection('counter')
+};
 
 sub new {
     my $self = shift->SUPER::new(@_);
