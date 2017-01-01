@@ -21,6 +21,8 @@ has ua => sub { Loong::UserAgent };
 
 my $active = 0;
 my $max_conn = 10;
+my $xxx=0
+;
 
 sub new{
     my $self = shift->SUPER::new(@_);
