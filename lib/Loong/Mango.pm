@@ -24,9 +24,8 @@ sub save_crawl_info {
         $opts => sub {
             my ( $collection, $err, $doc ) = @_;
             # TODO support failed insert db
-            print "mango saved $crawled->{url} \n";
             return
-              defined $doc ? $doc : $collection->insert( $crawled => sub { } );
+              defined $doc ? $doc : $collection->insert( $crawled => sub {} );
         }
     );
 }

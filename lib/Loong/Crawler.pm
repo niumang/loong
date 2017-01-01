@@ -15,6 +15,7 @@ use Loong::Mojo::UserAgent;
 #use Loong::Mojo::UserAgent::CookieJar;
 use Loong::Mango;
 use Loong::Queue;
+use Loong::Config;
 use Loong::Queue::Worker;
 use Loong::Utils::Scraper;
 use Loong::Mojo::Exception;
@@ -25,7 +26,9 @@ use constant DEBUG        => $ENV{LOONG_DEBUG};
 # TODO suport save cookie cache
 # TODO support proxy for http request
 # TODO support db name for seed
-has 'seed' => sub { $_[1] =~ s{http://}{}g; $_[1] };
+#
+has seed            => sub { $_[1] =~ s{http://}{}g; $_[1] };
+has config          => sub { Loong::Config->new };
 has max_currency    => sub { MAX_CURRENCY };
 has log             => sub { Loong::Mojo::Log->new };
 has ua              => sub { Loong::Mojo::UserAgent->new };
@@ -35,9 +38,10 @@ has ua_name         => sub { 'fuck' };
 has io_loop         => sub { Mojo::IOLoop->new };
 has task_name       => sub { 'crawl' };
 has queue_name      => sub { 'crawl_' . ( shift->seed || '' ) };
-has queue           => sub { Loong::Queue->new( mysql => 'mysql://root:root@127.0.0.1/task' ) };
+has queue           => sub { Loong::Queue->new(
+        mysql => (shift->config->mysql_uri) || 'mysql://root:root@127.0.0.1/task' ) };
 has worker          => sub { shift->queue->repair->worker };
-has mango           => sub { Loong::Mango->new('mongodb://localhost:27017') };
+has mango           => sub { Loong::Mango->new(shift->config->mango_uri || 'mongodb://localhost:27017') };
 has collection      => sub {
     my ($self) = @_;
     my $db = $self->seed;
@@ -132,8 +136,6 @@ sub process_job {
             my ( $ua, $tx ) = @_;
             my $ret = {};
             eval { $ret = $self->scrape( $tx, $context ) };
-            $ret->{url} = "$url";
-            $ret->{url_md5} = md5_hex("$url");
             return $self->stop if DEBUG;
 
             for my $item(@{ $ret->{nexts} }){
@@ -167,6 +169,8 @@ sub scrape {
             load_class $pkg;
             my $scraper = $pkg->new;
             $ret = $scraper->find( $method => $url )->scrape( $res, $context );
+            $ret->{url} = "$ret->{url}";
+            $ret->{url_md5} = md5_hex($ret->{url});
             $self->log->debug( "解析 url => $url  => " . Dump($ret) );
         };
         if ($@) {
