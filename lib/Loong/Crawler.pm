@@ -11,7 +11,6 @@ use Mojo::URL;
 use Mojo::DOM;
 use Mojo::Util qw(dumper);
 use Mojo::Loader qw(load_class);
-use Mojo::Loader qw(load_class);
 
 use Loong::Mojo::Log;
 use Loong::Mojo::UserAgent;
@@ -28,14 +27,13 @@ use constant DEBUG        => $ENV{LOONG_DEBUG}||0;
 # TODO suport save cookie cache
 # TODO support proxy for http request
 # TODO support db name for seed
-#
 has seed            => sub { $_[1] =~ s{http://}{}g; $_[1] };
 has config          => sub { Loong::Config->new };
 has log             => sub { Loong::Mojo::Log->new };
 has ua              => sub { Loong::Mojo::UserAgent->new };
 has url             => sub { Mojo::URL->new };
-has extra_config    => sub { $_[0]->config->{site}->{$_[0]->seed} || {} };
-has queue_name      => sub { 'crawl_' . ( shift->seed || '' ) };
+has extra_config    => sub { shift->site_config };
+has queue_name      => sub { 'crawl_' . ( shift->seed || '') };
 has queue           => sub { Loong::Queue->new( mysql => (shift->config->mysql_uri) ) };
 has worker          => sub { shift->queue->repair->worker };
 has mango           => sub { Loong::Mango->new(shift->config->mango_uri) };
@@ -57,19 +55,28 @@ sub new {
     return $self;
 }
 
-
+sub site_config{
+    my ($self) = @_;
+    my $s = $self->seed;
+    $s=~s/www.//g;
+    return $self->config->{site}->{$s}->{crawl};
+}
 
 sub first_blood {
     my ($self) = @_;
     my $url = $self->seed =~ m/^http/ ? $self->seed : 'http://' . $self->seed;
-    $self->log->debug("加入种子任务: url => $url");
+    my $home = $self->config->{site}->{$self->seed}->{entry}{home};
+    $url = $home if $home;
+    my $args = { url => $url, extra_config => $self->extra_config };
     $self->queue->enqueue(
-        'crawl',
-        [ { url => $url, extra_config => $self->extra_config } ] => {
-            priority => $self->extra_config->{priority} || 0,
-            queue => $self->queue_name,
+        'crawl'=> [$args] => {
+            priority    => $self->extra_config->{priority} || 0,
+            queue       => $self->queue_name,
         }
     );
+    $self->log->debug("加入种子任务: url => $url");
+
+    return;
 }
 
 sub init {
@@ -150,7 +157,6 @@ sub scrape {
         $self->log->error("下载 url => $url 失败, 原因: $res->code");
         return;
     }
-    my $url    = $tx->req->url;
     my $type   = $res->headers->content_type;
     my $method = $tx->req->method;
     my $domain = $self->seed;
@@ -160,19 +166,19 @@ sub scrape {
 
 
     # TODO support img and file content
+    # TODO add scraper cached in memory
+    $self->cache_resouce($tx) if DEBUG;
     if ( $type && $type =~ qr{^(text|application)/(html|xml|xhtml)} ) {
         eval {
-            $self->cache_resouce($tx) if DEBUG;
-            # TODO add scraper cached in memory
             load_class $pkg;
             my $scraper = $pkg->new;
             $ret = $scraper->find( $method => $url )->scrape( $res, $context );
-            $ret->{url} = "$ret->{url}";
+            $ret->{url} = "$url";
             $ret->{url_md5} = md5_hex($ret->{url});
             $self->log->debug( "解析 url => $url  => " . Dump($ret) );
         };
         if ($@) {
-            $self->log->debug("解析 html 文档失败 $@, 你的傻逼代码肯定出问题了");
+            $self->log->debug("解析 html 文档失败: $@, 傻逼代码出问题了");
         }
     }
 
@@ -184,11 +190,11 @@ sub continue_with_scraped {
 
     my $args = {
         url          => $next->{url},
-        previous_url => $previous,
+        parent => $previous,
         extra_config => $ctx,
     };
-    $self->queue->enqueue( 'crawl', [$args], { queue => $self->queue_name } )
-        unless DEBUG;
+    $self->queue->enqueue(
+        'crawl', [$args], { queue => $self->queue_name } ) unless DEBUG;
 }
 
 sub prepare_http {
@@ -200,10 +206,11 @@ sub prepare_http {
     my $headers = $self->extra_config->{headers};
     my $form    = $self->extra_config->{form};
     my @args = ( $method, $url );
-    push( @args, form    => $_ ) if $form;
-    push( @args, headers => $_ ) if $headers;
+    push( @args, form    => $form ) if $form;
+    push( @args, headers => $headers ) if $headers;
 
     $self->log->debug( "准备好 http 参数" . dumper( \@args ) );
+
     return $self->ua->build_tx(@args);
 }
 
