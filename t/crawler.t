@@ -8,7 +8,7 @@ use Loong::Scraper::Hhssee;
 
 my $url = shift;
 my $loong = Loong::Crawler->new(seed => 'www.hhssee.com');
-$loong->beta_crawl($url);
+$url ? $loong->beta_crawl($url) : $loong->init;
 $loong->fuck;
 
 done_testing();

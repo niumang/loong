@@ -1,48 +1,44 @@
 package Loong::Crawler;
 
 use Carp;
+use YAML qw(Dump);
+use File::Spec;
+use File::Path qw(make_path remove_tree);
+use Digest::MD5 qw(md5_hex);
+
 use Mojo::Base 'Mojo::EventEmitter';
 use Mojo::URL;
 use Mojo::DOM;
 use Mojo::Util qw(dumper);
-use YAML qw(Dump);
 use Mojo::Loader qw(load_class);
-use Encode qw(decode_utf8);
+use Mojo::Loader qw(load_class);
 
 use Loong::Mojo::Log;
 use Loong::Mojo::UserAgent;
-
-#use Loong::Mojo::UserAgent::Proxy;
-#use Loong::Mojo::UserAgent::CookieJar;
+use Loong::Mojo::Exception;
+use Loong::Mango;
 use Loong::Queue;
+use Loong::Config;
 use Loong::Queue::Worker;
 use Loong::Utils::Scraper;
-use Loong::Mojo::Exception;
 
-use constant MAX_CURRENCY => 100;
-use constant DEBUG        => $ENV{LOONG_DEBUG};
-
-has 'seed' => sub { $_[1] =~ s{http://}{}g; $_[1] };
-has max_currency => sub { MAX_CURRENCY };
-has log          => sub { Loong::Mojo::Log->new };
+use constant MAX_CURRENCY => 20;
+use constant DEBUG        => $ENV{LOONG_DEBUG}||0;
 
 # TODO suport save cookie cache
-#has cookie => sub { Loong::Mojo::UserAgent::CookieJar->new };
-has ua           => sub { Loong::Mojo::UserAgent->new };
-has url          => sub { Mojo::URL->new };
-has extra_config => sub { {} };
-
 # TODO support proxy for http request
-#has proxy => sub { Loong::Mojo::UserAgent::Proxy->new };
-has ua_name    => sub { 'fuck' };
-has io_loop    => sub { Mojo::IOLoop->new };
-has task_name  => sub { 'crawl' };
-has queue_name => sub { 'crawl_' . ( shift->seed || '' ) };
-has queue => sub {
-    Loong::Queue->new( mysql => 'mysql://root:root@127.0.0.1/minion_jobs' );
-};
-has worker    => sub { shift->queue->repair->worker };
-has _loop_ids => sub { [] };
+# TODO support db name for seed
+#
+has seed            => sub { $_[1] =~ s{http://}{}g; $_[1] };
+has config          => sub { Loong::Config->new };
+has log             => sub { Loong::Mojo::Log->new };
+has ua              => sub { Loong::Mojo::UserAgent->new };
+has url             => sub { Mojo::URL->new };
+has extra_config    => sub { $_[0]->config->{site}->{$_[0]->seed} || {} };
+has queue_name      => sub { 'crawl_' . ( shift->seed || '' ) };
+has queue           => sub { Loong::Queue->new( mysql => (shift->config->mysql_uri) ) };
+has worker          => sub { shift->queue->repair->worker };
+has mango           => sub { Loong::Mango->new(shift->config->mango_uri) };
 
 sub new {
     my $self = shift->SUPER::new(@_);
@@ -50,14 +46,18 @@ sub new {
     return $self if DEBUG;
 
     $self->first_blood and $self->log->debug("添加task回调任务");
-    $self->queue->add_task( $self->task_name => sub { shift->emit( 'crawl', shift ) } );
-    $self->on( empty => sub {
+    $self->queue->add_task(
+        crawl => sub { shift->emit( 'crawl', shift ) } );
+    $self->on(
+        empty => sub {
             $self->log->debug("没有任务了！");
             $self->stop;
         }
     );
     return $self;
 }
+
+
 
 sub first_blood {
     my ($self) = @_;
@@ -94,17 +94,14 @@ sub init {
             $self->process_job( $url, $task_info->{extra_config} );
         },
     );
-    push @{ $self->_loop_ids }, $id;
+    push @{ $self->{_loop_id} }, $id;
     return $self;
 }
 
 sub beta_crawl { shift->process_job(@_) }
 
 sub stop {
-    my ($self) = @_;
-    for my $id ( @{ $self->_loop_ids } ) {
-        Mojo::IOLoop->remove($_) for @{ $self->_loop_ids };
-    }
+    Mojo::IOLoop->remove($_) for @{ $_[0]->{_loop_id} };
     Mojo::IOLoop->stop;
 }
 
@@ -116,7 +113,6 @@ sub process_job {
     my $tx      = $self->prepare_http($url);
     my $context = {};
     $context->{ua}           = $self->ua;
-    $context->{emitter}      = $self->io_loop;
     $context->{extra_config} = $self->extra_config;
     $context->{tx}           = $tx;
     $context->{base}         = $self->seed;
@@ -125,16 +121,20 @@ sub process_job {
     $self->ua->start(
         $tx => sub {
             my ( $ua, $tx ) = @_;
-            my $ret = $self->scrape( $tx, $context );
+            my $ret = {};
+            eval { $ret = $self->scrape( $tx, $context ) };
 
             return $self->stop if DEBUG;
 
-            my $nexts = $ret->{nexts};
-            while ( my $item = shift @$nexts ) {
-                $self->log->debug("攥取下一个页面 $item->{url}");
+            for my $item(@{ $ret->{nexts} }){
+                $self->log->debug("获取下一个页面 $item->{url}");
                 $self->continue_with_scraped( $ret->{url}, $item,
                     $self->extra_config );
             }
+            my $opts = {
+                collection => $self->mango->get_counter_collection_by($self->seed)
+            };
+            return $self->mango->save_crawl_info( $ret, $opts);
         },
     );
 }
@@ -142,10 +142,14 @@ sub process_job {
 sub scrape {
     my ( $self, $tx, $context ) = @_;
     my $res = $tx->res;
+    my $url    = $tx->req->url;
     my $ret;
 
-    return unless $res->headers->content_length && $res->body;
-
+    if(!$res->headers->content_length or !$res->body){
+        # TODO failed update or enqueue to next url
+        $self->log->error("下载 url => $url 失败, 原因: $res->code");
+        return;
+    }
     my $url    = $tx->req->url;
     my $type   = $res->headers->content_type;
     my $method = $tx->req->method;
@@ -154,16 +158,21 @@ sub scrape {
     my $pkg = 'Loong::Scraper::' . ucfirst( [ split( '\.', $domain ) ]->[0] );
     $self->log->debug("查找到解析的模块 $pkg");
 
+
+    # TODO support img and file content
     if ( $type && $type =~ qr{^(text|application)/(html|xml|xhtml)} ) {
         eval {
+            $self->cache_resouce($tx) if DEBUG;
             # TODO add scraper cached in memory
             load_class $pkg;
             my $scraper = $pkg->new;
             $ret = $scraper->find( $method => $url )->scrape( $res, $context );
+            $ret->{url} = "$ret->{url}";
+            $ret->{url_md5} = md5_hex($ret->{url});
             $self->log->debug( "解析 url => $url  => " . Dump($ret) );
         };
         if ($@) {
-            $self->log->debug("解析 html 文档失败 $@");
+            $self->log->debug("解析 html 文档失败 $@, 你的傻逼代码肯定出问题了");
         }
     }
 
@@ -178,20 +187,18 @@ sub continue_with_scraped {
         previous_url => $previous,
         extra_config => $ctx,
     };
-    $self->queue->enqueue( 'crawl', [$args], { queue => $self->queue_name } );
+    $self->queue->enqueue( 'crawl', [$args], { queue => $self->queue_name } )
+        unless DEBUG;
 }
 
 sub prepare_http {
     my ( $self, $url ) = @_;
 
+    # TODO prepare cookie proxy pre-request post request
     #$self->emit($_) for qw( cookie ip_pool pre_form);
     my $method  = $self->extra_config->{method} || 'get';
     my $headers = $self->extra_config->{headers};
     my $form    = $self->extra_config->{form};
-
-    $self->ua->transactor->name( $self->ua_name );
-    $self->ua->max_redirects(5);
-
     my @args = ( $method, $url );
     push( @args, form    => $_ ) if $form;
     push( @args, headers => $_ ) if $headers;
@@ -206,6 +213,25 @@ sub shuffle {
 
 sub clock_speed {
 }
+
+sub cache_resouce{
+    my ($self,$tx,$opts) = @_;
+
+    my $url_md5 = md5_hex($tx->req->url->to_string);
+    # 默认存储到{root}目录/data
+    my $cache_dir = File::Spec->catdir($self->config->root,'data',$self->seed,$url_md5);
+    if(not -d $cache_dir){
+        $self->log->debug("创建缓存目录 : $cache_dir");
+        make_path($cache_dir);
+    }
+    my $file = File::Spec->catfile($cache_dir,'cached.html');
+    $tx->res->content->asset->move_to($file);
+    $self->log->debug("缓存文件 -> $file 成功");
+
+    return 1;
+}
+
+
 
 1;
 

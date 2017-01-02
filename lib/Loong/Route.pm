@@ -8,8 +8,6 @@ use Data::Dumper;
 
 use constant DEBUG => $ENV{LOONG_DEBUG} || 0;
 
-my $config;
-
 sub import{
     $ENV{LOONG_EXE} ||= (caller)[1];
 
