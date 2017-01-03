@@ -65,15 +65,16 @@ sub first_blood {
     my ($self) = @_;
     my $url = $self->seed =~ m/^http/ ? $self->seed : 'http://' . $self->seed;
     my $home = $self->config->{site}->{$self->seed}->{entry}{home};
-    $url = $home if $home;
-    my $args = {url => $url, extra_config => $self->extra_config};
-    $self->queue->enqueue(
-        'crawl' => [$args] => {
-            priority => $self->extra_config->{priority} || 0,
-            queue => $self->queue_name,
-        }
-    );
-    $self->log->debug("加入种子任务: url => $url");
+
+    die "没有定义网站的入口" unless $home;
+
+    for my $url(split(',',$home)){
+        my $args = {url => $url, extra_config => $self->extra_config};
+        $self->queue->enqueue(
+            'crawl' => [$args] => { queue => $self->queue_name, }
+        );
+        $self->log->debug("加入种子任务: url => $url");
+    }
 
     return;
 }

@@ -2,6 +2,7 @@ package Loong::Scraper::Hupu;
 
 use Loong::Base 'Loong::Scraper';
 use Loong::Route;
+use Data::Dumper;
 
 my $nba_terms = {
     '平均得分' => 'PPG',
@@ -23,6 +24,8 @@ my $nba_terms = {
     '平均失误' => 'TPG',
     '平均犯规' => 'FPG',
     '平均时间' => 'FPG',
+};
+my $team_mapping = {
 };
 my $player_terms = {
    '身高' => 'height',
@@ -53,6 +56,60 @@ get 'hupu.com/teams$' => sub {
         push @nexts,$item;
     }
     $ret->{nexts} = \@nexts;
+    return $ret;
+};
+
+get 'nba.hupu.com/schedule$' => sub {
+    my ($self,$dom,$ctx) = @_;
+    my $ret = {};
+    my @nexts;
+
+    for my $e( $dom->find('span.team_name')->each ){
+        my $item = {
+            url => $e->at('a')->{href},
+            name => $e->all_text,
+        };
+        push @nexts,$item;
+    }
+    $ret->{nexts} = \@nexts;
+    return $ret;
+};
+
+get '/schedule/\w+$' => sub {
+    my ($self,$dom,$ctx) = @_;
+    my $ret = {};
+    my @nexts;
+
+    my $ht;
+    my $url = $ctx->{tx}->req->url;
+    if($url=~ m{schedule/\w+$}){
+        $ret->{team} = $1;
+        #$ret->{zh_team} = $team_mapping->{$1};
+    }
+
+    my @schedules;
+    for my $tr($dom->find('tr.left')->each){
+        my $text = $tr->all_text;
+        my $item;
+        if($text=~ m/胜|负/){
+            if($text=~ m{
+                    (\S+)\s+vs\s+(\S+).*? # 马刺 vs 太阳
+                    (\d+)\s+-\s+(\d+).*? # 86 - 91
+                    (胜|负).*? # 负
+                    (\d+-\d+-\d+\s+\d+:\d+:\d+) # 2016-10-04 10:00:00
+                }sx
+            ){
+                $item->{away} = $1;
+                $item->{home} = $2;
+                $item->{away_score} = $3;
+                $item->{home_score} = $4;
+                $item->{result} = $5;
+                $item->{play_time} = $6;
+                push @schedules,$item;
+            }
+        }
+    }
+    $ret->{schedule} = \@schedules;
     return $ret;
 };
 
