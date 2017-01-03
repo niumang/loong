@@ -22,6 +22,19 @@ my $nba_terms = {
     '平均盖帽' => 'BPG',
     '平均失误' => 'TPG',
     '平均犯规' => 'FPG',
+    '平均时间' => 'FPG',
+};
+my $player_terms = {
+   '身高' => 'height',
+   '位置' => 'pos',
+   '体重' => 'weight',
+   '生日' => 'birthday',
+   '球队' => 'team',
+   '学校' => 'school',
+   '选秀' => 'draft',
+   '国籍' => 'country',
+   '本赛季薪金' => 'salary',
+   '合同' => 'contract',
 };
 
 # https://nba.hupu.com/teams
@@ -48,6 +61,34 @@ get 'nba.hupu.com/teams/\w+' => sub {
     my $ret = {};
     my @nexts;
 
+    my $team = $dom->at('div.table_team_box')->all_text;
+    if($team=~ m/(场均失分).*?([\d\.]+)/s){
+        $ret->{ $nba_terms->{$1} } = $2;
+    }
+    for my $e($dom->at('div.jiben_title_table')->find('a')->each){
+        push @nexts,{
+            url => $e->{href},
+            title => $e->{title},
+        };
+    }
+    $ret->{home} =~ s/'//g;
+    $ret->{home} =~ s/\s+$//g;
+    $ret->{home} =~ s/^s+//g;
+    $ret->{nexts} = \@nexts;
+    _parse_nba_pro_terms($dom,$ret);
+    return $ret;
+};
+
+get 'nba.hupu.com/players/.+html' => sub {
+    my ($self,$dom,$ctx) = @_;
+    my $ret = {};
+    _parse_nba_pro_terms($dom,$ret);
+    return $ret;
+};
+
+sub _parse_nba_pro_terms{
+    my ($dom,$ret) = @_;
+
     my $content  = $dom->at('div.content_a')->all_text;
     my $team = $dom->at('div.table_team_box')->all_text;
     if($team=~ m/(场均失分).*?([\d\.]+)/s){
@@ -64,8 +105,26 @@ get 'nba.hupu.com/teams/\w+' => sub {
         $ret->{zone} = $3;
         $ret->{site} = $4;
         $ret->{coach} = $5;
+        $ret->{home} =~ s/'//g;
+        $ret->{home} =~ s/\s+$//g;
+        $ret->{home} =~ s/^s+//g;
+        $ret->{zone} =~ s/\n//g;
     }
-
+    my %player_info = $content =~ m{
+        (位置)：(\S+).*?  #(位置)：F（7号）.*?
+        (身高)：(\S+).*?  #(身高)：2.03米/6尺8.*?
+        (体重)：(\S+).*?  #(体重)：109公斤/240磅.*?
+        (生日)：([\d-]+).*?  #(生日)：1984-05-29.*?
+        (球队)：(\S+).*?  #(球队)：纽约尼克斯.*?
+        (学校)：(\S+).*?  #(学校)：雪城大学.*?
+        (选秀)：(\S+).*?  #(选秀)：2003年第1轮第3顺位.*?
+        (国籍)：(\S+).*?  #(国籍)：美国.*?
+        (本赛季薪金)：(\S+).*?  #(本赛季薪金)：2456万美元.*?
+        (合同)：(\S+) #(合同)：5年1.24亿美元，2014年夏天签，2019年夏天到期，2018夏提前终止合同选项；拥有交易否决权；合同包含15%交易保证金\s+
+    }sxi;
+    if($player_info{'生日'}){
+        $ret->{$player_terms->{$_}} = $player_info{$_} for keys %player_info;
+    }
     for my $item($dom->at('div.team_qushi')->find('a')->each){
         #得分变化趋势图    平均得分： 105.4 分
         my $text = $item->{tit};
@@ -74,16 +133,7 @@ get 'nba.hupu.com/teams/\w+' => sub {
             $ret->{$term} = $2;
         }
     }
-
-    for my $e($dom->at('div.jiben_title_table')->find('a')->each){
-        push @nexts,{
-            url => $e->{href},
-            title => $e->{title},
-        };
-    }
-    $ret->{nexts} = \@nexts;
-    return $ret;
-};
+}
 
 1;
 
