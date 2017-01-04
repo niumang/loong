@@ -21,12 +21,13 @@ use Loong::Config;
 use Loong::Queue::Worker;
 use Loong::Utils::Scraper;
 
-use constant MAX_CURRENCY => 20;
+use constant MAX_CURRENCY => 2;
 use constant DEBUG => $ENV{LOONG_DEBUG} || 0;
 
 # TODO suport save cookie cache
 # TODO support proxy for http request
 # TODO support db name for seed
+has max_currency => MAX_CURRENCY;
 has seed => sub { $_[1] =~ s{http://}{}g; $_[1] };
 has config       => sub { Loong::Config->new };
 has log          => sub { Loong::Mojo::Log->new };
@@ -64,15 +65,14 @@ sub site_config {
 sub first_blood {
     my ($self) = @_;
     my $url = $self->seed =~ m/^http/ ? $self->seed : 'http://' . $self->seed;
-    my $home = $self->config->{site}->{$self->seed}->{entry}{home};
+    my $home = $self->site_config->{entry}{home};
+    $home =~ s/www.//g;
 
-    die "没有定义网站的入口" unless $home;
+    die "没有定义网站的入口 $home\n" unless $home;
 
-    for my $url(split(',',$home)){
+    for my $url (split(',', $home)) {
         my $args = {url => $url, extra_config => $self->extra_config};
-        $self->queue->enqueue(
-            'crawl' => [$args] => { queue => $self->queue_name, }
-        );
+        $self->queue->enqueue('crawl' => [$args] => {queue => $self->queue_name,});
         $self->log->debug("加入种子任务: url => $url");
     }
 
@@ -136,8 +136,7 @@ sub process_job {
                 $self->log->debug("获取下一个页面 $item->{url}");
                 $self->continue_with_scraped($ret->{url}, $item, $self->extra_config);
             }
-            my $opts = {collection => $self->mango->get_counter_collection_by($self->seed)};
-            return $self->mango->save_crawl_info($ret, $opts);
+            return $self->mango->save_crawl_info($ret, $self->seed);
         },
     );
 }
@@ -159,14 +158,17 @@ sub scrape {
     my $domain = $self->seed;
     $domain =~ s/www.//g;
     my $pkg = 'Loong::Scraper::' . ucfirst([split('\.', $domain)]->[0]);
-    $self->log->debug("查找到解析的模块 $pkg");
+    my $alias = $self->site_config->{entry}->{alias};
+    $pkg = 'Loong::Scraper::' . ucfirst($alias) if $alias;
 
+    $self->log->debug("查找到解析的模块 $pkg");
 
     # TODO support img and file content
     # TODO add scraper cached in memory
     $self->cache_resouce($tx) if DEBUG;
-    if ($type && $type =~ qr{^(text|application)/(html|xml|xhtml)}) {
+    if ($type && $type =~ qr{^(text|application)/(html|xml|xhtml|javascript)}) {
         eval {
+            $context->{type} = $2;
             load_class $pkg;
             my $scraper = $pkg->new;
             $ret = $scraper->find($method => $url)->scrape($res, $context);
