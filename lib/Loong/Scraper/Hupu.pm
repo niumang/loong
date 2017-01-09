@@ -8,13 +8,13 @@ my $nba_terms = {
     '平均得分'             => 'PPG',
     '场均失分'             => 'LPG',
     '平均出手数'          => 'FGA',
-    '平均命中率'          => 'FG%',
+    '平均命中率'          => 'FGP',
     '平均3分得分'         => '3PM',
     '平均3分出手数'      => '3PA',
-    '平均3分命中率'      => '3P%',
+    '平均3分命中率'      => '3PP',
     '平均罚球出手数'    => 'FTA',
     '平均罚球命中次数' => 'FTM',
-    '平均罚球命中率'    => 'FT%',
+    '平均罚球命中率'    => 'FTP',
     '平均防守篮板'       => 'DEFR',
     '平均进攻篮板'       => 'OFFR',
     '平均篮板球数'       => 'RPG',
@@ -23,7 +23,7 @@ my $nba_terms = {
     '平均盖帽'             => 'BPG',
     '平均失误'             => 'TPG',
     '平均犯规'             => 'FPG',
-    '平均时间'             => 'FPG',
+    '平均时间'             => 'MIN',
 };
 my $team_mapping = {};
 my $player_terms = {
@@ -50,8 +50,10 @@ get 'hupu.com/teams$' => sub {
     for my $team ($game->find('a.a_teamlink')->each) {
         my $item = {};
         ($item->{win}, $item->{los}) = $team->at('p')->text =~ m/(\d+).(\d+)/;
-        $item->{url}  = $team->attr('href');
-        $item->{name} = $team->at('h2')->text;
+        $item->{url} = $team->attr('href');
+        ($item->{name}) = $item->{url} =~ m{/(\w+)$};
+        $item->{logo}    = $team->at('img')->{src};
+        $item->{zh_name} = $team->at('h2')->text;
         push @nexts, $item;
     }
     $ret->{nexts} = \@nexts;
@@ -91,24 +93,23 @@ get '/schedule/\w+$' => sub {
     for my $tr ($dom->find('tr.left')->each) {
         my $text = $tr->all_text;
         my $item;
-        if ($text =~ m/胜|负/) {
-            if ($text =~ m{
-                    (\S+)\s+vs\s+(\S+).*? # 马刺 vs 太阳
-                    (\d+)\s+-\s+(\d+).*? # 86 - 91
-                    (胜|负).*? # 负
-                    (\d+-\d+-\d+\s+\d+:\d+:\d+) # 2016-10-04 10:00:00
-                }sx
-              )
-            {
-                $item->{away}       = $1;
-                $item->{home}       = $2;
-                $item->{away_score} = $3;
-                $item->{home_score} = $4;
-                $item->{result}     = $5;
-                $item->{play_time}  = $6;
-                push @schedules, $item;
-            }
+        if ($text =~ m{
+                (\S+)\s+vs\s+(\S+).*? # 马刺 vs 太阳
+                (\d+|)\s+-\s+(\d+|).*? # 86 - 91
+                (\d+-\d+-\d+\s+\d+:\d+:\d+) # 2016-10-04 10:00:00
+            }sx
+          )
+        {
+            $item->{away}       = $1;
+            $item->{home}       = $2;
+            $item->{away_score} = $3;
+            $item->{home_score} = $4;
+            $item->{play_time}  = $5;
         }
+        if ($text =~ m/(胜|负)/) {
+            $item->{result} = $1;
+        }
+        push @schedules, $item;
     }
     $ret->{schedule} = \@schedules;
     return $ret;
@@ -123,17 +124,21 @@ get 'nba.hupu.com/teams/\w+' => sub {
     if ($team =~ m/(场均失分).*?([\d\.]+)/s) {
         $ret->{$nba_terms->{$1}} = $2;
     }
+    _parse_nba_pro_terms($dom, $ret);
     for my $e ($dom->at('div.jiben_title_table')->find('a')->each) {
         push @nexts,
           { url   => $e->{href},
             title => $e->{title},
           };
     }
+    print "crawl url => " . $ctx->{tx}->req->url;
     $ret->{home} =~ s/'//g;
+    if (not $ret->{home}) {
+        die Dumper $ret;
+    }
     $ret->{home} =~ s/\s+$//g;
     $ret->{home} =~ s/^s+//g;
     $ret->{nexts} = \@nexts;
-    _parse_nba_pro_terms($dom, $ret);
     return $ret;
 };
 
@@ -170,18 +175,33 @@ sub _parse_nba_pro_terms {
         $ret->{home} =~ s/^s+//g;
         $ret->{zone} =~ s/\n//g;
     }
+
+=pod
+位置：G（8号）
+身高：1.88米/6尺2
+体重：79公斤/175磅
+生日：1984-09-24
+球队：休斯顿火箭
+学校：Cal State Fullerton
+国籍：美国
+本赛季薪金：98万美元
+合同：1年98万美元，2016年夏天签，2017年夏天到期，2016-17赛季无保障
+=cut
+
     my %player_info = $content =~ m{
-        (位置)：(\S+).*?  #(位置)：F（7号）.*?
+        (位置)：(\S+\s*\S+).*?  #(位置)：F（7号）.*?
         (身高)：(\S+).*?  #(身高)：2.03米/6尺8.*?
         (体重)：(\S+).*?  #(体重)：109公斤/240磅.*?
         (生日)：([\d-]+).*?  #(生日)：1984-05-29.*?
-        (球队)：(\S+).*?  #(球队)：纽约尼克斯.*?
-        (学校)：(\S+).*?  #(学校)：雪城大学.*?
+        (球队)：(\S+)\s+.*?  #(球队)：纽约尼克斯.*?
+        (学校)：(\S+)\s+.*?  #(学校)：雪城大学.*?
         (选秀)：(\S+).*?  #(选秀)：2003年第1轮第3顺位.*?
         (国籍)：(\S+).*?  #(国籍)：美国.*?
         (本赛季薪金)：(\S+).*?  #(本赛季薪金)：2456万美元.*?
         (合同)：(\S+) #(合同)：5年1.24亿美元，2014年夏天签，2019年夏天到期，2018夏提前终止合同选项；拥有交易否决权；合同包含15%交易保证金\s+
-    }sxi;
+    }sxg;
+
+    #($player_info{draft}) = $1 if $content=~ m/选秀：(\S+)/s;
     if ($player_info{'生日'}) {
         $ret->{$player_terms->{$_}} = $player_info{$_} for keys %player_info;
     }
@@ -228,5 +248,28 @@ A/TO: Assist to turnover ratio
 PER: Player Efficiency Rating
 PPS: Points Per Shot per game
 AFG%: Adjusted Field Goal Percentage per game
+
+CREATE TABLE `schedule` (
+  `id` int(20) ,
+    `match_time` datetime,
+  `home` varchar(20),
+    `away` varchar(20),
+    `home_score` int(11),
+    `away_score` int(11),
+    `result` varchar(10),
+    `stat` text,
+    `video` varchar(255),
+    `highlight` varchar(255)
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `zhibo` (
+  `id` int(20) ,
+    tv_date datetime,
+  home varchar(20),
+    away varchar(20),
+    play_url text
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 
