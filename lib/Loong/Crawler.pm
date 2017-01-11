@@ -48,7 +48,7 @@ sub new {
     $self->queue->add_task(crawl => sub { shift->emit('crawl', shift) });
     $self->on(
         empty => sub {
-            $self->log->debug("没有任务了！");
+            $self->log->debug("抓取 " . $self->seed . " 完成！");
             $self->stop;
         }
     );
@@ -84,10 +84,10 @@ sub init {
     $url ||= $self->seed;
 
     my $id = Mojo::IOLoop->recurring(
-        0 => sub {
+        0.5 => sub {
             my $job = $self->worker->register->dequeue($self->shuffle, {queues => [$self->queue_name]});
 
-            return unless $job;
+            return $self->emit('empty') unless $job;
 
             my $task_info = $job->args->[0];
             my $url       = $task_info->{url};
@@ -97,7 +97,7 @@ sub init {
               || !$url
               || $self->ua->active_host($url) >= $self->max_currency;
 
-            $self->process_job($url, $task_info->{extra_config});
+            return $self->process_job($url, $task_info->{extra_config});
         },
     );
     push @{$self->{_loop_id}}, $id;

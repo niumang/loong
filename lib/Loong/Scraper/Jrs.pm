@@ -47,7 +47,8 @@ get 'js/\d+.js' => sub {
         $item->{away} =~ s/^\s+//g;
         $item->{away} =~ s/\s+$//g;
         $item->{away_logo} = $divs->[4]->at('img')->{src};
-        push @nexts, $item if $item->{desc} =~ m/NBA常规赛/;
+
+        #push @nexts, $item if $item->{desc} =~ m/NBA常规赛/;
     }
 
     $ret->{nexts} = \@nexts;
