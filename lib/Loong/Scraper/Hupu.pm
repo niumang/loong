@@ -3,6 +3,7 @@ package Loong::Scraper::Hupu;
 use Loong::Base 'Loong::Scraper';
 use Loong::Route;
 use Data::Dumper;
+use Encode qw(decode_utf8);
 
 my $nba_terms = {
     '平均得分'             => 'PPG',
@@ -31,7 +32,7 @@ my $player_terms = {
     '位置'          => 'pos',
     '体重'          => 'weight',
     '生日'          => 'birthday',
-    '球队'          => 'team',
+    '球队'          => 'zh_team',
     '学校'          => 'school',
     '选秀'          => 'draft',
     '国籍'          => 'country',
@@ -43,10 +44,11 @@ my $player_terms = {
 get 'hupu.com/teams$' => sub {
     my ($self, $dom, $ctx) = @_;
     my $url = $ctx->{url};
-    my $ret = {};
+    my $ret = {data => [], nexts => [], collection => 'teams'};
 
     my $game = $dom->at('div.gamecenter_content');
     my @nexts;
+    my @data;
     for my $team ($game->find('a.a_teamlink')->each) {
         my $item = {};
         ($item->{win}, $item->{los}) = $team->at('p')->text =~ m/(\d+).(\d+)/;
@@ -55,14 +57,16 @@ get 'hupu.com/teams$' => sub {
         $item->{logo}    = $team->at('img')->{src};
         $item->{zh_name} = $team->at('h2')->text;
         push @nexts, $item;
+        push @data,  $item;
     }
     $ret->{nexts} = \@nexts;
+    $ret->{data}  = \@data;
     return $ret;
 };
 
 get 'nba.hupu.com/schedule$' => sub {
     my ($self, $dom, $ctx) = @_;
-    my $ret = {};
+    my $ret = {data => [], nexts => [], collection => 'schedule'};
     my @nexts;
 
     for my $e ($dom->find('span.team_name')->each) {
@@ -78,15 +82,14 @@ get 'nba.hupu.com/schedule$' => sub {
 
 get '/schedule/\w+$' => sub {
     my ($self, $dom, $ctx) = @_;
-    my $ret = {};
+    my $ret = {data => [], nexts => [], collection => 'schedule'};
     my @nexts;
 
     my $ht;
     my $url = $ctx->{tx}->req->url;
+    my $team;
     if ("$url" =~ m{schedule/(\w+)$}) {
-        $ret->{team} = $1;
-
-        #$ret->{zh_team} = $team_mapping->{$1};
+        $team = $1;
     }
 
     my @schedules;
@@ -105,47 +108,60 @@ get '/schedule/\w+$' => sub {
             $item->{away_score} = $3;
             $item->{home_score} = $4;
             $item->{play_time}  = $5;
+            $item->{team}       = $team;
+            $item->{url}        = "$url";
         }
         if ($text =~ m/(胜|负)/) {
             $item->{result} = $1;
         }
-        push @schedules, $item;
+        push @schedules, $item if $item;
     }
-    $ret->{schedule} = \@schedules;
+    $ret->{data} = \@schedules;
     return $ret;
 };
 
 get 'nba.hupu.com/teams/\w+' => sub {
     my ($self, $dom, $ctx) = @_;
-    my $ret = {};
+    my $ret = {data => [], nexts => [], collection => 'team_stat'};
+
+    my $url = $ctx->{tx}->req->url;
     my @nexts;
 
+    my $data_ref;
     my $team = $dom->at('div.table_team_box')->all_text;
     if ($team =~ m/(场均失分).*?([\d\.]+)/s) {
-        $ret->{$nba_terms->{$1}} = $2;
+        $data_ref->{$nba_terms->{$1}} = $2;
     }
-    _parse_nba_pro_terms($dom, $ret);
+    _parse_nba_pro_terms($dom, $data_ref);
     for my $e ($dom->at('div.jiben_title_table')->find('a')->each) {
-        push @nexts,
-          { url   => $e->{href},
-            title => $e->{title},
-          };
+        push @nexts, {url => $e->{href}, title => $e->{title},};
     }
-    print "crawl url => " . $ctx->{tx}->req->url;
-    $ret->{home} =~ s/'//g;
-    if (not $ret->{home}) {
-        die Dumper $ret;
-    }
-    $ret->{home} =~ s/\s+$//g;
-    $ret->{home} =~ s/^s+//g;
-    $ret->{nexts} = \@nexts;
+    $data_ref->{home} =~ s/'//g;
+    $data_ref->{home} =~ s/\s+$//g;
+    $data_ref->{home} =~ s/^s+//g;
+    $data_ref->{url} = "$url";
+    $ret->{nexts}    = \@nexts;
+    $ret->{data}     = [$data_ref];
+
     return $ret;
 };
 
 get 'nba.hupu.com/players/.+html' => sub {
     my ($self, $dom, $ctx) = @_;
-    my $ret = {};
-    _parse_nba_pro_terms($dom, $ret);
+    my $ret  = {data => [], nexts => [], collection => 'player'};
+    my $data = {};
+    my $url  = $ctx->{tx}->req->url;
+    $data->{url}     = "$url";
+    $data->{name}    = $dom->at('div.team_data')->find('h2')->[0]->text;
+    $data->{profile} = $dom->at('div.team_data')->find('img')->first->{src};
+
+    # 泰勒-恩尼斯（Tyler Ennis）
+    if ($data->{name} =~ m{(\S+?)（(.*?)）}s) {
+        $data->{name}    = $2;
+        $data->{zh_name} = $1;
+    }
+    _parse_nba_pro_terms($dom, $data);
+    $ret->{data} = [$data];
     return $ret;
 };
 
@@ -188,27 +204,20 @@ sub _parse_nba_pro_terms {
 合同：1年98万美元，2016年夏天签，2017年夏天到期，2016-17赛季无保障
 =cut
 
-    my %player_info = $content =~ m{
-        (位置)：(\S+\s*\S+).*?  #(位置)：F（7号）.*?
-        (身高)：(\S+).*?  #(身高)：2.03米/6尺8.*?
-        (体重)：(\S+).*?  #(体重)：109公斤/240磅.*?
-        (生日)：([\d-]+).*?  #(生日)：1984-05-29.*?
-        (球队)：(\S+)\s+.*?  #(球队)：纽约尼克斯.*?
-        (学校)：(\S+)\s+.*?  #(学校)：雪城大学.*?
-        (选秀)：(\S+).*?  #(选秀)：2003年第1轮第3顺位.*?
-        (国籍)：(\S+).*?  #(国籍)：美国.*?
-        (本赛季薪金)：(\S+).*?  #(本赛季薪金)：2456万美元.*?
-        (合同)：(\S+) #(合同)：5年1.24亿美元，2014年夏天签，2019年夏天到期，2018夏提前终止合同选项；拥有交易否决权；合同包含15%交易保证金\s+
-    }sxg;
-
-    #($player_info{draft}) = $1 if $content=~ m/选秀：(\S+)/s;
-    if ($player_info{'生日'}) {
-        $ret->{$player_terms->{$_}} = $player_info{$_} for keys %player_info;
+    my $player_info = {};
+    my $node        = $dom->at('div.team_data > div > div.content_a > div > div.font');
+    for my $p ($node->find('p')->each) {
+        if ($p->all_text =~ m/(\S+)：(.*)/) {
+            $ret->{$player_terms->{$1}} = $2 if $player_terms->{$1};
+        }
+    }
+    if ("$node" =~ m{teams/(\w+)}) {
+        $ret->{team} = $1;
     }
     for my $item ($dom->at('div.team_qushi')->find('a')->each) {
+        my $text = $item->{tit};
 
         #得分变化趋势图    平均得分： 105.4 分
-        my $text = $item->{tit};
         if ($text =~ m{(\S+)：.*?([\d\.]+)}six) {
             my $term = $nba_terms->{$1};
             $ret->{$term} = $2;

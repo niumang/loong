@@ -8,7 +8,9 @@ my $mango  = Loong::Mango->new($config->mango_uri);
 
 my $collection = $mango->db('hupu')->collection('counter');
 
-my $teams = $collection->find_one({url => 'https://nba.hupu.com/teams'});
+my $teams = $collection->find_one({url => qr{nba.hupu.com/teams}});
+print Dump $teams;
+exit;
 
 my @team_meta = qw(
   name logo zone union win los coach site home zh_name

@@ -24,7 +24,7 @@ get 'js/\d+.js' => sub {
     my ($self, $dom, $ctx) = @_;
     my $js = "$dom";
     my @nexts;
-    my $ret = {};
+    my $ret = {data => [], nexts => [], collection => 'topic'};
 
     # document.write("<html>");
     my ($html) = $js =~ m{\(\"(.*?)\"\)}si;
@@ -47,8 +47,7 @@ get 'js/\d+.js' => sub {
         $item->{away} =~ s/^\s+//g;
         $item->{away} =~ s/\s+$//g;
         $item->{away_logo} = $divs->[4]->at('img')->{src};
-
-        #push @nexts, $item if $item->{desc} =~ m/NBA常规赛/;
+        push @{$ret->{data}}, $item if $item->{desc} =~ m/nba/i;
     }
 
     $ret->{nexts} = \@nexts;
@@ -58,18 +57,30 @@ get 'js/\d+.js' => sub {
 # href="http://nba.tmiaoo.com/n/100209400?classid=1&id=1297"
 # 直播链接
 # http://nba.tmiaoo.com/n/100209400/p.html
-get '(classid=\d+.id=\d+|\d+/p.html)$' => sub {
+get '(classid=\d+.id=\d+)$' => sub {
     my ($self, $dom, $ctx) = @_;
-    my $ret = {};
+    my $ret = {data => [], nexts => []};
 
-    my @play_list;
-    for my $e ($dom->find('div.mv_action')->each) {
-        push @play_list,
-          { url  => $e->at('a')->{href},
-            name => $e->at('a')->text,
-          };
+    my $url = $ctx->{tx}->req->url->to_string;
+
+    #http://nba.tmiaoo.com/n/100209400?classid=1&id=1422
+    if ($url =~ m{n/(\d+)\?}) {
+        push @{$ret->{nexts}}, 'http://nba.tmiaoo.com/n/' . $1 . '/p.html';
     }
-    $ret->{play_list} = \@play_list;
+
+    return $ret;
+};
+
+get '\d+/p.html' => sub {
+    my ($self, $dom, $ctx) = @_;
+    my $ret = {data => [], collection => 'live'};
+    for my $e ($dom->at('div.mv_action')->find('a')->each) {
+        my $item = {};
+        $item->{live_url} = $e->{href};
+        $item->{title}    = $e->text;
+        push @{$ret->{data}}, $item;
+    }
+
     return $ret;
 };
 
