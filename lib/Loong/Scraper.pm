@@ -3,31 +3,91 @@ package Loong::Scraper;
 use Mojo::Base -base;
 use Mojo::URL;
 use Mojo::DOM;
+use Mojo::Util qw(monkey_patch dumper);
 use Encode qw(find_encoding);
 use Loong::Mojo::Log;
 
-has key    => 0;
+my $scraper = {};
+
+sub import{
+    my $class = shift;
+    return unless my $flag= shift;
+
+    if($flag eq '-route'){
+        my $caller = caller;
+        no strict 'refs';
+        push @{"${caller}::ISA"}, __PACKAGE__;
+
+        monkey_patch $caller, 'has', sub { Mojo::Base::attr($caller, @_) };
+
+        for my $method (qw(get post put delete)){
+            monkey_patch $caller =>  $method =>  sub {
+                my ($url_pattern,$cb) = (shift,pop);
+                my ($headers,%attr);
+                $headers = shift if @_==1;
+                %attr = @_ if @_==2;
+                ($headers,%attr) = @_ if @_==3;
+
+                my $key = join('|',$method,$url_pattern);
+                $scraper->{$key}->{method} = $method;
+                $scraper->{$key}->{cb} = $cb;
+                $scraper->{$key}->{headers} = $headers if ref $headers;
+                $scraper->{$key}->{form} = $attr{form} if ref $attr{form};
+                return $scraper;
+            };
+        }
+    }
+}
+
+has 'url';
+has 'alias';
+has 'cb';
+has 'headers';
+has 'form';
+has 'key';
+has 'pattern';
 has method => 'get';
-has domain => '';
 has log    => sub { Loong::Mojo::Log->new };
 
 # <meta charset="UTF-8">
 my $charset_re = qr{charset\s*=\s*['"](.+?)["']}i;
 
+sub new{
+    my $class = shift;
+    my $self  = $class->SUPER::new(@_);
+    die "无效的url" unless $self->url;
+    $self->match;
+    return $self;
+}
+
+sub _trim_url{
+    my ($url)  = @_;
+
+    my $ihost = Mojo::URL->new($url)->ihost;
+    $ihost=~ s/www.//g;
+    $ihost=~ s/.(?:com|me|mobi|net.cn|zh|pl)//g;
+    return $ihost;
+}
+
 sub scrape {
     my ($self, $res, $ctx) = @_;
 
-    Carp::croak "invalid url_pattern : " . $self->key unless $self->key;
+    Carp::croak "无效的 url 匹配: " . $self->key unless $self->key;
+
+    if(!defined $res){
+        use Mojo::UserAgent;
+        $res = Mojo::UserAgent->new->get($self->url)->res;
+    }
 
     my $type = $ctx->{type};
     my $dom;
-    if ($type eq 'javascript') {
+    if (defined $type && $type eq 'javascript') {
         $dom = $res->body;
     }
     else {
         $dom = Mojo::DOM->new($self->decoded_body($res));
     }
-    return $self->scraper->{$self->key}->{$self->method}->{cb}->($self, $dom, $ctx, @_);
+    return $self->cb->($self, $dom, $ctx, @_);
 }
 
 sub resolve_href {
@@ -101,4 +161,19 @@ sub _guess_encoding {
     return _guess_encoding_css($res->body)  if $type =~ qr{text/css};
 }
 
+sub match {
+    my ( $self ) = @_;
+    # todo: 从cache获取callback
+    for my $key(keys %$scraper){
+        my ($method,$pattern) = $key=~ m/^(.+?)\|(.*)$/i;
+        next unless $self->url=~ m/$pattern/i;
+        next unless lc $self->method eq lc $method;
+
+        $self->cb($scraper->{$key}->{cb});
+        $self->headers($scraper->{$key}->{headers});
+        $self->key($key);
+        $self->form($scraper->{$key}->{form});
+    }
+    return $self;
+}
 1;
