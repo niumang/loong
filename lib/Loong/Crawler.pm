@@ -38,9 +38,11 @@ has queue_name   => sub { join('_', 'crawl', shift->seed) };
 has queue => sub { Loong::Queue->new(mysql => (shift->config->mysql_uri)) };
 has worker => sub { shift->queue->repair->worker };
 has mango  => sub { Loong::DB::Mango->new(shift->config->mango_uri) };
+has 'scraper';
 
 sub new {
     my $self = shift->SUPER::new(@_);
+    $self->_spec_scraper;
 
     return $self if DEBUG;
 
@@ -97,9 +99,9 @@ sub init {
             my $task_info = $job->args->[0];
             my $url       = $task_info->{url};
             return
-                 if $self->ua->active_conn >= $self->max_currency
-              || !$url
-              || $self->ua->active_host($url) >= $self->max_currency;
+            if $self->ua->active_conn >= $self->max_currency
+            || !$url
+            || $self->ua->active_host($url) >= $self->max_currency;
             return $self->process_job($url, $task_info->{context});
         },
     );
@@ -152,14 +154,19 @@ sub _spec_scraper {
     my ($self, $domain) = @_;
     $domain ||= $self->seed;
     $domain =~ s/www.//g;
-    my $pkg;
-    if (my $alias = $self->site_config->{entry}->{alias}) {
-        $pkg = join('::', 'Loong', 'Scraper', ucfirst $alias);
+    $domain =~ s/www.//g;
+    my $alias = $self->site_config->{entry}->{alias};
+    my $pkg = join('::','Loong','Scraper',ucfirst( $alias ? $alias : [split('\.', $domain)]->[0]) );
+    my $scraper;
+    eval {
+        load_class $pkg;
+        $scraper = $pkg->new( domain => $domain );
+    };
+    if($@){
+        $self->log->error("加载 scraper 模块失败");
+        die $@;
     }
-    else {
-        $pkg = join('::', 'Loong', 'Scraper', ucfirst([split('\.', $domain)]->[0]));
-    }
-    return $pkg;
+    $self->scraper($scraper);
 }
 
 sub scrape {
@@ -175,18 +182,13 @@ sub scrape {
     }
     my $type   = $res->headers->content_type;
     my $method = $tx->req->method;
-    my $pkg    = $self->_spec_scraper;
-    $self->log->debug("查找到解析的模块 $pkg");
 
     # TODO support img and file content
     # TODO add scraper cached in memory
     $self->cache_resouce($tx) if DEBUG;
     if ($type && $type =~ qr{^(text|application)/(html|xml|xhtml|javascript)}) {
         eval {
-            $context->{type} = $2;
-            load_class $pkg;
-            my $scraper = $pkg->new;
-            $ret = $scraper->find($method => $url)->scrape($res, $context);
+            $ret = $self->scraper->scrape($url, $res, $context);
             $self->log->debug("解析 url => $url  => " . Dump($ret));
         };
         if ($@) {
@@ -207,22 +209,19 @@ sub continue_with_scraped {
     $self->queue->enqueue('crawl', [$args], {queue => $self->queue_name}) unless DEBUG;
 }
 
+# todo: prepare cookie proxy pre-request post request
 sub prepare_http {
     my ($self, $url) = @_;
 
-    # TODO prepare cookie proxy pre-request post request
-    # $self->emit($_) for qw( cookie ip_pool pre_form);
-    my $method  = $self->extra_config->{method} || 'get';
-    my $headers = $self->extra_config->{headers};
-    my $form    = $self->extra_config->{form};
-    my @args    = ($method, $url);
+    $self->scraper->match($url);
+    my ($method,$headers,$form) = ($self->scraper->method,$self->scraper->headers,$self->scraper->form);
+    $self->log->debug("请求 $url ******\n" . sprintf('method=%s, headers=%s, form=%s',
+            $method,dumper $headers,dumper $form) );
+    my @args;
+    push @args,$headers if $headers;
+    push @args,(form => $form) if $form;
 
-    push(@args, form    => $form)    if $form;
-    push(@args, headers => $headers) if $headers;
-
-    $self->log->debug("准备好 http 参数" . dumper(\@args));
-
-    return $self->ua->build_tx(@args);
+    return $self->ua->build_tx( uc $method => $url => @args);
 }
 
 sub shuffle {

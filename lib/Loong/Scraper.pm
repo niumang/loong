@@ -39,13 +39,7 @@ sub import{
     }
 }
 
-has 'url';
-has 'alias';
-has 'cb';
-has 'headers';
-has 'form';
-has 'key';
-has 'pattern';
+has [qw(url alias cb headers form key pattern domain)];
 has method => 'get';
 has log    => sub { Loong::Mojo::Log->new };
 
@@ -55,8 +49,7 @@ my $charset_re = qr{charset\s*=\s*['"](.+?)["']}i;
 sub new{
     my $class = shift;
     my $self  = $class->SUPER::new(@_);
-    die "无效的url" unless $self->url;
-    $self->match;
+    die "无效的域名" unless $self->domain;
     return $self;
 }
 
@@ -70,13 +63,14 @@ sub _trim_url{
 }
 
 sub scrape {
-    my ($self, $res, $ctx) = @_;
+    my ($self, $url, $res, $ctx) = @_;
 
+    $self->match($url);
     Carp::croak "无效的 url 匹配: " . $self->key unless $self->key;
 
     if(!defined $res){
         use Mojo::UserAgent;
-        $res = Mojo::UserAgent->new->get($self->url)->res;
+        $res = Mojo::UserAgent->new->get($url)->res;
     }
 
     my $type = $ctx->{type};
@@ -162,13 +156,14 @@ sub _guess_encoding {
 }
 
 sub match {
-    my ( $self ) = @_;
-    # todo: 从cache获取callback
+    my ( $self,$url ) = @_;
+    # todo: 从 cache 获取 callback
     for my $key(keys %$scraper){
         my ($method,$pattern) = $key=~ m/^(.+?)\|(.*)$/i;
-        next unless $self->url=~ m/$pattern/i;
+        next unless $url=~ m/$pattern/i;
         next unless lc $self->method eq lc $method;
 
+        $self->url($url);
         $self->cb($scraper->{$key}->{cb});
         $self->headers($scraper->{$key}->{headers});
         $self->key($key);
