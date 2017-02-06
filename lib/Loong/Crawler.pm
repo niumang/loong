@@ -21,7 +21,7 @@ use Loong::Config;
 use Loong::Queue::Worker;
 use Loong::Utils::Scraper;
 
-use constant MAX_CURRENCY => 4;
+use constant MAX_CURRENCY => 10;
 use constant DEBUG => $ENV{LOONG_DEBUG} || 0;
 
 # TODO suport save cookie cache
@@ -92,17 +92,18 @@ sub init {
 
     my $id = Mojo::IOLoop->recurring(
         $self->shuffle => sub {
-            my $job = $self->worker->register->dequeue($self->shuffle, {queues => [$self->queue_name]});
+            while(1){
+                my $job = $self->worker->register->dequeue($self->shuffle, {queues => [$self->queue_name]});
 
-            return $self->emit('empty') unless $job;
+                return $self->emit('empty') unless $job;
 
-            my $task_info = $job->args->[0];
-            my $url       = $task_info->{url};
-            return
-            if $self->ua->active_conn >= $self->max_currency
-            || !$url
-            || $self->ua->active_host($url) >= $self->max_currency;
-            return $self->process_job($url, $task_info->{context});
+                my $task_info = $job->args->[0];
+                my $url       = $task_info->{url};
+                return if $self->ua->active_conn >= $self->max_currency
+                    || !$url
+                    || $self->ua->active_host($url) >= $self->site_config->{ua}{max_active};
+                $self->process_job($url, $task_info->{context});
+            }
         },
     );
     push @{$self->{_loop_id}}, $id;
@@ -139,13 +140,15 @@ sub process_job {
                 for my $item (@{$ret->{data}}) {
                     $item->{parent}  = $context->{parent};
                     $item->{url_md5} = md5_hex $item->{url};
-                    $self->log->debug("保存到 mango collection-<$collection>: " . Dump($item));
-                    $self->mango->save_crawl_info($item, $self->seed, $collection);
+                    unless(DEBUG){
+                        $self->log->debug("保存到 mango collection-<$collection>: " . Dump($item));
+                        $self->mango->save_crawl_info($item, $self->seed, $collection);
+                    }
                 }
             }
+
             return $self->stop if DEBUG;
-            $self->continue_with_scraped($_, "$url", $context) for @{$ret->{nexts}};
-            return;
+            return $self->continue_with_scraped($_, "$url", $context) for @{$ret->{nexts}};
         },
     );
 }
