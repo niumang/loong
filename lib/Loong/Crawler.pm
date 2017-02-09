@@ -21,7 +21,7 @@ use Loong::Config;
 use Loong::Queue::Worker;
 use Loong::Utils::Scraper;
 
-use constant MAX_CURRENCY => 10;
+use constant MAX_CURRENCY => 20;
 use constant DEBUG => $ENV{LOONG_DEBUG} || 0;
 
 # TODO suport save cookie cache
@@ -129,7 +129,7 @@ sub process_job {
     $context->{extra_config} = $self->extra_config;
     $context->{parent} ||= '';
 
-    $self->log->debug("开始抓取 url => $url");
+    $self->log->info("开始抓取 url => $url");
     $self->ua->start(
         $tx => sub {
             my ($ua, $tx) = @_;
@@ -148,7 +148,7 @@ sub process_job {
             }
 
             return $self->stop if DEBUG;
-            return $self->continue_with_scraped($_, "$url", $context) for @{$ret->{nexts}};
+            $self->continue_with_scraped($_, "$url", $context) for @{$ret->{nexts}};
         },
     );
 }
@@ -166,7 +166,7 @@ sub _spec_scraper {
         $scraper = $pkg->new( domain => $domain );
     };
     if($@){
-        $self->log->error("加载 scraper 模块失败");
+        $self->log->error("加载 scraper 模块失败 $@");
         die $@;
     }
     $self->scraper($scraper);
@@ -228,7 +228,7 @@ sub prepare_http {
 }
 
 sub shuffle {
-    return int(rand(5));
+    return rand(1);
 }
 
 sub clock_speed {

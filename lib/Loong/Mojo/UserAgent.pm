@@ -51,9 +51,13 @@ sub _host_key {
     return $key;
 }
 
-sub _finish{
+sub _xfinish{
     my ($self,$id,$close) = @_;
     my $tx = $self->{connections}{$id}{tx};
+    if(not $id){
+        die "id is null =====\n";
+        exit;
+    }
     $self->SUPER::_finish($id,$close);
     $self->cache_cookie($tx);
 }

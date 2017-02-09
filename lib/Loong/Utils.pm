@@ -31,8 +31,8 @@ sub merge_hash {
 
 sub trim_domain{
     my ($s) = @_;
-    $s=~ m/www\.//g;
-    $s=~ m/\.(?:com|me|pl|net|zh|org|cn|info|tw)$//g;
+    $s=~ s/www.//g;
+    $s=~ s/\.(?:com|me|pl|net|zh|org|cn|info|tw)$//g;
     return $s;
 }
 

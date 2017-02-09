@@ -33,7 +33,7 @@ sub _execute {
 
     if (DEBUG) {
         my $pretty_sql = $self->sqat->format($sql, \@binds);
-        $self->log->debug("执行 SQL 语句:\n $pretty_sql");
+        print "执行 SQL 语句:\n $pretty_sql\n";
     }
     return $self->db->query($sql, @binds);
 }
