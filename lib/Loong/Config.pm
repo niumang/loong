@@ -69,7 +69,7 @@ sub parse {
 }
 
 sub _basic_attr {
-    qw(mango_uri mysql_uri app_debug app_log app_process_num app_data);
+    qw(mango_uri mysql_uri app_debug app_log app_process_num app_data app_log_level );
 }
 
 sub read {

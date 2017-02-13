@@ -13,6 +13,7 @@ use constant DEBUG => $ENV{LOONG_DEBUG};
 has active_conn => 0;
 has active_conn_per_host => sub { {} };
 has cookie_path => sub { File::Spec->catdir($HOME,'.cookie') };
+has 'cookie_script';
 
 sub new {
     my $class = shift;
@@ -24,7 +25,10 @@ sub new {
             my ( $self, $tx ) = @_;
             my $url = $tx->req->url;
             $self->active_host( $url, 1 );
-            $tx->on( finish => sub { $self->active_host( $url, -1 ) });
+            $tx->on( finish => sub {
+                    $self->cache_cookie($tx) if $self->cookie_script;
+                    $self->active_host( $url, -1 ) }
+            );
         }
     );
 
@@ -51,17 +55,6 @@ sub _host_key {
     return $key;
 }
 
-sub _xfinish{
-    my ($self,$id,$close) = @_;
-    my $tx = $self->{connections}{$id}{tx};
-    if(not $id){
-        die "id is null =====\n";
-        exit;
-    }
-    $self->SUPER::_finish($id,$close);
-    $self->cache_cookie($tx);
-}
-
 sub cache_cookie{
     my ($self,$tx) = @_;
 
@@ -71,12 +64,20 @@ sub cache_cookie{
     my $cookie_file = File::Spec->catfile($self->cookie_path,$domain);
     my $is_expired;
 
+    warn "cache cookie here $cookie_file\n";
     return DumpFile($cookie_file,$self->cookie_jar) if DEBUG;
 
     if(-e $cookie_file and -s $cookie_file){
-        my $first = first { $_->{expires} } @{ LoadFile($cookie_file)->{jar}->{$domain} };
+        my $cookie_jar = LoadFile($cookie_file);
+        warn "read cookie form => $cookie_file\n";
+        my $first = first { $_->{expires} } @{ $cookie_jar->{jar}->{$domain} };
+        # 如果cookie为空，调用cookie生产脚本,并且加载cookiejar
         my $expires = $first->{expires}||0;
-        return if $now<$expires;
+        if( !defined $first || $now > $expires){
+            system($self->cookie_script);
+            return $self->cookie_jar( LoadFile($cookie_file) );
+        }
+        return $self->cookie_jar($cookie_jar);
     }
     DumpFile($cookie_file,$self->cookie_jar);
 }

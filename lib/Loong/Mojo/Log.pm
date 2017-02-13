@@ -18,7 +18,7 @@ sub new {
     my $dir = dirname($app_log);
     make_path $dir if not -d $dir;
     $self->path($app_log) unless DEBUG;
-    $self->level(LEVEL);
+    $self->level($self->config->app_log_level || LEVEL);
     return $self;
 }
 

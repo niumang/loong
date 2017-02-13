@@ -64,9 +64,9 @@ sub _trim_url{
 
 sub scrape {
     my ($self, $url, $res, $ctx) = @_;
-
     $self->match($url);
-    Carp::croak "无效的 url 匹配: " . $self->key unless $self->key;
+
+    Carp::croak "无效的 url 匹配: $url with pattern ".dumper($scraper) unless $self->key;
 
     if(!defined $res){
         use Mojo::UserAgent;
