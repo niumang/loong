@@ -65,12 +65,13 @@ sub cache_cookie{
     my $cookie_file = File::Spec->catfile($self->cookie_path,$domain);
     my $cookie_jar;
 
+    warn "dumper cookie_file= $cookie_file\n";
     # 如果cookie为空，调用cookie生产脚本,并且加载cookiejar
     if(-e $cookie_file){
         my $load = LoadFile($cookie_file);
         $cookie_jar = $self->rand_cookie($load);
 
-        $self->log->debug("获取rand cookie从文件: ".Dump($cookie_jar));
+        warn("获取rand cookie从文件: ".Dump($cookie_jar));
         my $first = first { $_->{expires} } @{ $cookie_jar->{jar}->{$ihost} };
         my $now = time;
         my $expires = $first->{expires}||0;
@@ -84,7 +85,17 @@ sub cache_cookie{
 
 sub _reload_cookie{
     my ($self,$cookie_file) = @_;
-    system($self->cookie_script);
+
+    my $cmd;
+    my $exe='perl';
+
+    $exe = 'python' if $self->cookie_script=~ m/py$/;
+    $exe = 'php' if $self->cookie_script=~ m/php$/;
+    $exe = 'ruby' if $self->cookie_script=~ m/ruby$/;
+    $cmd = join(' ',$exe,$self->cookie_script);
+    chmod 0755,$self->cookie_script;
+    warn "$cmd\n";
+    system($cmd);
     return $self->rand_cookie(LoadFile($cookie_file));
 }
 

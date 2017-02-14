@@ -217,6 +217,7 @@ sub prepare_http {
     my ($self, $url) = @_;
 
     $self->scraper->match($url);
+    $self->ua->cookie_script($self->site_config->{ua}->{cookie_script});
     my ($method,$headers,$form) = ($self->scraper->method,$self->scraper->headers,$self->scraper->form);
     $self->log->debug("请求 $url ******\n" . sprintf('method=%s, headers=%s, form=%s',
             $method,dumper $headers,dumper $form) );
