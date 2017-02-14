@@ -90,8 +90,9 @@ sub init {
     my ($self, $url) = @_;
     $url ||= $self->seed;
 
+    my $interval = $self->site_config->{ua}->{interval} || $self->shuffle;
     my $id = Mojo::IOLoop->recurring(
-        $self->shuffle => sub {
+        rand($interval) => sub {
             while(1){
                 my $job = $self->worker->register->dequeue($self->shuffle, {queues => [$self->queue_name]});
 
@@ -212,15 +213,21 @@ sub continue_with_scraped {
     $self->queue->enqueue('crawl', [$args], {queue => $self->queue_name}) unless DEBUG;
 }
 
-# todo: prepare cookie proxy pre-request post request
 sub prepare_http {
     my ($self, $url) = @_;
 
     $self->scraper->match($url);
     $self->ua->cookie_script($self->site_config->{ua}->{cookie_script});
-    my ($method,$headers,$form) = ($self->scraper->method,$self->scraper->headers,$self->scraper->form);
-    $self->log->debug("请求 $url ******\n" . sprintf('method=%s, headers=%s, form=%s',
-            $method,dumper $headers,dumper $form) );
+
+    # 配置 http，https 代理
+    if(my $proxy = $self->site_config->{ua}->{proxy}){
+        $self->ua->proxy->http(join('//:','socks',$proxy));
+        $self->ua->proxy->https(join('//:','socks',$proxy));
+    }
+
+    my ($method,$headers,$form) = (map { $self->scraper->$_ } qw(method headers form) );
+    $self->log->debug("Proxy: ".$self->ua->proxy->http);
+    $self->log->debug("请求参数" . sprintf('method=%s, headers=%s, form=%s', $method,dumper $headers,dumper $form) );
     my @args;
     push @args,$headers if $headers;
     push @args,(form => $form) if $form;
