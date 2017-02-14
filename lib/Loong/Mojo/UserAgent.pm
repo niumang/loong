@@ -6,7 +6,7 @@ use Mojo::File 'path';
 use Env qw(HOME);
 use File::Spec;
 use List::Util 'first';
-use YAML qw(LoadFile DumpFile);
+use YAML qw(LoadFile DumpFile Dump);
 
 use constant DEBUG => $ENV{LOONG_DEBUG};
 
@@ -59,27 +59,39 @@ sub cache_cookie{
     my ($self,$tx) = @_;
 
     my $now = time;
-    my $domain = $tx->req->url->ihost;
+    my ($domain,$ihost);
+    $domain = $ihost = $tx->req->url->ihost;
     $domain=~ s/www.//g;
     my $cookie_file = File::Spec->catfile($self->cookie_path,$domain);
-    my $is_expired;
+    my $cookie_jar;
 
-    warn "cache cookie here $cookie_file\n";
-    return DumpFile($cookie_file,$self->cookie_jar) if DEBUG;
+    # 如果cookie为空，调用cookie生产脚本,并且加载cookiejar
+    if(-e $cookie_file){
+        my $load = LoadFile($cookie_file);
+        $cookie_jar = $self->rand_cookie($load);
 
-    if(-e $cookie_file and -s $cookie_file){
-        my $cookie_jar = LoadFile($cookie_file);
-        warn "read cookie form => $cookie_file\n";
-        my $first = first { $_->{expires} } @{ $cookie_jar->{jar}->{$domain} };
-        # 如果cookie为空，调用cookie生产脚本,并且加载cookiejar
+        $self->log->debug("获取rand cookie从文件: ".Dump($cookie_jar));
+        my $first = first { $_->{expires} } @{ $cookie_jar->{jar}->{$ihost} };
+        my $now = time;
         my $expires = $first->{expires}||0;
-        if( !defined $first || $now > $expires){
-            system($self->cookie_script);
-            return $self->cookie_jar( LoadFile($cookie_file) );
-        }
-        return $self->cookie_jar($cookie_jar);
+        $cookie_jar = $self->_reload_cookie($cookie_file) if( !defined $first || $now > $expires)
+    }else{
+        $cookie_jar = $self->_reload_cookie($cookie_file);
     }
-    DumpFile($cookie_file,$self->cookie_jar);
+
+    $self->cookie_jar($cookie_jar);
+}
+
+sub _reload_cookie{
+    my ($self,$cookie_file) = @_;
+    system($self->cookie_script);
+    return $self->rand_cookie(LoadFile($cookie_file));
+}
+
+sub rand_cookie{
+    my ($self,$data) = @_;
+    my @cookies = @{ $data };
+    return $cookies[int(rand @cookies)];
 }
 
 1;

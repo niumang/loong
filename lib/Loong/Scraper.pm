@@ -11,6 +11,7 @@ my $scraper = {};
 
 sub import{
     my $class = shift;
+
     return unless my $flag= shift;
 
     if($flag eq '-route'){

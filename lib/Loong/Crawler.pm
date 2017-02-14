@@ -99,7 +99,7 @@ sub init {
 
                 my $task_info = $job->args->[0];
                 my $url       = $task_info->{url};
-                return if $self->ua->active_conn >= $self->max_currency
+                return if ($self->ua->active_conn && $self->ua->active_conn >= $self->max_currency)
                     || !$url
                     || $self->ua->active_host($url) >= $self->site_config->{ua}{max_active};
                 $self->process_job($url, $task_info->{context});
