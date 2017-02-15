@@ -84,7 +84,7 @@ sub read {
         if ($line =~ m/^\[(.+?)\]/) {
             $section = $1;
         }
-        if ($line =~ m/^(.+)\s*=\s*(.*)/) {
+        if ($line =~ m/^(.+?)\s*=\s*(.*)/) {
             my ($k, $v) = ($1, $2);
             $parsed->{$section}->{$k} = $v;
         }

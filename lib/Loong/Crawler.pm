@@ -11,6 +11,7 @@ use Mojo::URL;
 use Mojo::DOM;
 use Mojo::Util qw(dumper);
 use Mojo::Loader qw(load_class);
+use Mojo::UserAgent::CookieJar;
 
 use Loong::Mojo::Log;
 use Loong::Mojo::UserAgent;
@@ -42,7 +43,16 @@ has 'scraper';
 
 sub new {
     my $self = shift->SUPER::new(@_);
+
     $self->_spec_scraper;
+    if(my $proxy = $self->site_config->{ua}->{proxy}){
+        $self->ua->proxy->http('http://'.$proxy)->https('https://'.$proxy);
+    }
+    if(my $jar = $self->site_config->{ua}->{cookie_jar}){
+        $self->ua->cookie_jar(Mojo::UserAgent::CookieJar->new);
+        $self->ua->get($jar);
+    }
+    $self->log->debug("cookie =".dumper($self->ua->cookie_jar) );
 
     return $self if DEBUG;
 
@@ -50,6 +60,7 @@ sub new {
     $self->queue->add_task(crawl => sub { shift->emit('crawl', shift) });
     $self->on(empty      => sub { $self->log->debug("没有任务了"); });
     $self->on(crawl_fail => sub { $self->handle_failed_task(@_) },);
+
     return $self;
 }
 
@@ -218,12 +229,6 @@ sub prepare_http {
 
     $self->scraper->match($url);
     $self->ua->cookie_script($self->site_config->{ua}->{cookie_script});
-
-    # 配置 http，https 代理
-    if(my $proxy = $self->site_config->{ua}->{proxy}){
-        $self->ua->proxy->http(join('//:','socks',$proxy));
-        $self->ua->proxy->https(join('//:','socks',$proxy));
-    }
 
     my ($method,$headers,$form) = (map { $self->scraper->$_ } qw(method headers form) );
     $self->log->debug("Proxy: ".$self->ua->proxy->http);

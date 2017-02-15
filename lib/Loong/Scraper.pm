@@ -122,7 +122,8 @@ sub _guess_encoding_html {
     my $charset;
 
     for my $e (Mojo::DOM->new($head)->find('meta')->each) {
-        do { $charset = $1; last } if "$e" =~ m/$charset_re/;
+        $charset = $1 if "$e"=~ m/$charset_re/ || "$e"=~ m/charset=(\S+?)"/;
+        last if $charset;
     }
     return $charset;
 }
@@ -130,7 +131,7 @@ sub _guess_encoding_html {
 sub decoded_body {
     my ($self, $res) = @_;
     my $enc = _guess_encoding($res);
-    $self->log->debug("查找到 HTML 编码: $enc");
+    $self->log->debug("查找到 HTML 编码: $enc") if $enc;
     return _encoder($enc)->decode($res->body);
 }
 
