@@ -7,7 +7,7 @@ use File::Path 'make_path';
 use File::Basename;
 
 use constant DEBUG => $ENV{LOONG_DEBUG};
-use constant LEVEL => $ENV{LOONG_LOG_LEVEL}||'info';
+use constant LEVEL => $ENV{LOONG_LOG_LEVEL} || 'info';
 
 has config => sub { Loong::Config->new };
 
@@ -18,7 +18,7 @@ sub new {
     my $dir = dirname($app_log);
     make_path $dir if not -d $dir;
     $self->path($app_log) unless DEBUG;
-    $self->level($self->config->app_log_level || LEVEL);
+    $self->level( $self->config->app_log_level || LEVEL );
     return $self;
 }
 

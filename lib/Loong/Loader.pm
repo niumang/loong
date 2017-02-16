@@ -17,9 +17,9 @@ use constant DEBUG => $ENV{LOONG_DEBUG};
 has 'site';
 has config     => sub { Loong::Config->new };
 has log        => sub { Loong::Mojo::Log->new };
-has mango      => sub { Loong::DB::Mango->new(shift->config->mango_uri) };
-has mysql      => sub { Loong::DB::MySQL->new(shift->get_load_config->{db}->{mysql_uri}) };
-has collection => sub {'counter'};
+has mango      => sub { Loong::DB::Mango->new( shift->config->mango_uri ) };
+has mysql      => sub { Loong::DB::MySQL->new( shift->get_load_config->{db}->{mysql_uri} ) };
+has collection => sub { 'counter' };
 
 # todo: 支持mysql连接池，或者搞搞异步
 sub new {
@@ -30,7 +30,7 @@ sub new {
 
 sub get_load_config {
     my $self = shift;
-    return $self->config->{site}->{$self->{site}}->{load};
+    return $self->config->{site}->{ $self->{site} }->{load};
 }
 
 # todo config mysql dbix
@@ -46,79 +46,78 @@ sub transfer_data {
     die "请指定你要导入 mysql 表的顺序，例如 : A,B,C"        unless $order;
     die "请指定 mangodb 数据来源,一般是你抓取网站的域名" unless $mango_db;
 
-    for my $table (split(',', $order)) {
+    for my $table ( split( ',', $order ) ) {
         my $mapping = $config->{$table};
         my $source  = $config->{$table}->{source};
 
         die "source 不能为空或者 mango source 表不存在" unless $source;
 
-        my $start = (split(',', $source))[0];
+        my $start  = ( split( ',', $source ) )[0];
         my $cursor = $self->mango->db($mango_db)->collection($start)->find();
-        my $count = 0;
-        my $index = delete $config->{$table}->{index};
+        my $count  = 0;
+        my $index  = delete $config->{$table}->{index};
 
         die "无效的唯一索引 $index" unless $index;
 
         # todo: 数据库分页处理，防止 db 因为插入过大崩溃
-        while (my $doc = $cursor->next) {
+        while ( my $doc = $cursor->next ) {
             my $row = {};
-            $doc = $self->aggregate_doc($mango_db, $table, $mapping, $doc);
-            for my $field (keys %{$config->{$table}}) {
+            $doc = $self->aggregate_doc( $mango_db, $table, $mapping, $doc );
+            for my $field ( keys %{ $config->{$table} } ) {
                 next if grep { $_ eq $field } qw(id index source pattern object_id);
                 my $map = $config->{$table}->{$field};
                 $row->{$field} = $doc->{$map};
             }
 
             $count++;
-            my $result = $self->mysql->insert_or_update($table, $row, $self->get_index_cnd($index, $row));
+            my $result = $self->mysql->insert_or_update( $table, $row, $self->get_index_cnd( $index, $row ) );
             $self->log->debug("插入 $count 条数据到 mysql 成功: $table ");
         }
     }
 }
 
 sub get_index_cnd {
-    my ($self, $index, $row) = @_;
+    my ( $self, $index, $row ) = @_;
 
     my $cnd = {};
-    $cnd->{$_} = $row->{$_} for split(',', $index);
+    $cnd->{$_} = $row->{$_} for split( ',', $index );
     return $cnd;
 }
 
 sub aggregate_doc {
-    my ($self, $db, $table, $mapping, $doc) = @_;
+    my ( $self, $db, $table, $mapping, $doc ) = @_;
 
     die "source 为空" unless $mapping->{source};
-    my $merged = merge_hash({}, $doc);
-    my @collections = split(',', $mapping->{source});
+    my $merged = merge_hash( {}, $doc );
+    my @collections = split( ',', $mapping->{source} );
 
     return $merged if @collections < 2;
 
-    foreach my $collection (@collections[1 .. $#collections]) {
-        my $cnd = $self->object_cnd($table, $mapping->{object_id}, $doc);
+    foreach my $collection ( @collections[ 1 .. $#collections ] ) {
+        my $cnd = $self->object_cnd( $table, $mapping->{object_id}, $doc );
         my $related = $self->mango->db($db)->collection($collection)->find_one($cnd);
-        $merged = merge_hash($doc, $related);
+        $merged = merge_hash( $doc, $related );
     }
     return $merged;
 }
 
-
 sub object_cnd {
-    my ($self, $table, $index, $doc) = @_;
+    my ( $self, $table, $index, $doc ) = @_;
 
     my $cnd = {};
-    $cnd->{$_} = $doc->{$_} for split(',',$index);
+    $cnd->{$_} = $doc->{$_} for split( ',', $index );
     return $cnd;
 }
 
 sub get_related_data {
-    my ($self, $table, $cond) = @_;
-    my ($result) = $self->mysql->select($table, 'id', $cond)->list;
+    my ( $self, $table, $cond ) = @_;
+    my ($result) = $self->mysql->select( $table, 'id', $cond )->list;
     return $result;
 }
 
 sub _build_regex_cursor {
-    my ($self, $db, $collection, $pattern) = @_;
-    return $self->mango->db($db)->collection($collection)->find({url => qr/$pattern/});
+    my ( $self, $db, $collection, $pattern ) = @_;
+    return $self->mango->db($db)->collection($collection)->find( { url => qr/$pattern/ } );
 }
 
 sub connect_mysql {

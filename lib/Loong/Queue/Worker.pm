@@ -7,21 +7,21 @@ use Loong::Mojo::Log;
 has minion => sub { Loong::Queue->new( Pg => 'postgresql://postgres@/test' ) };
 has log => sub { Loong::Mojo::Log->new };
 
-sub new{
+sub new {
     my $self = shift->SUPPER::new(@_);
-    $self->on('dequeue' => sub { $self->_dequeue(@_) });
+    $self->on( 'dequeue' => sub { $self->_dequeue(@_) } );
     return $self;
 }
 
-sub _dequeue{
-    my ($self,$job) = @_;
+sub _dequeue {
+    my ( $self, $job ) = @_;
 
-    my $id = $job->id;
+    my $id   = $job->id;
     my $args = $job->args;
 
     my ($task_info) = @$args;
-    if( my $task_name = $job->task ){
-        $self->emit($task_name,$task_info);
+    if ( my $task_name = $job->task ) {
+        $self->emit( $task_name, $task_info );
     }
 }
 
