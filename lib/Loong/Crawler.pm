@@ -231,7 +231,7 @@ sub prepare_http {
     $self->ua->cookie_script($self->site_config->{ua}->{cookie_script});
 
     my ($method,$headers,$form) = (map { $self->scraper->$_ } qw(method headers form) );
-    $self->log->debug("Proxy: ".$self->ua->proxy->http);
+    $self->log->debug("Proxy: ".$self->ua->proxy->http) if $self->ua->proxy->http;
     $self->log->debug("请求参数" . sprintf('method=%s, headers=%s, form=%s', $method,dumper $headers,dumper $form) );
     my @args;
     push @args,$headers if $headers;

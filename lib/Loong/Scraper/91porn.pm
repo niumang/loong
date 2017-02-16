@@ -18,7 +18,7 @@ get 'v.php.next=watch$' => sub {
     return $ret;
 };
 
-get 'page=\d+' => sub {
+get 'page=\d+$' => sub {
     my ( $self, $dom, $ctx ) = @_;
     my $ret = { data => [], nexts => [] };
 
@@ -40,7 +40,7 @@ get 'page=\d+' => sub {
 # http://192.240.120.2/mp43/198333.mp4?st=T94wtkHAv0KWaOegapDkZA&e=1487171450
 # Request URL:http://91porn.com/getfile.php?VID=198333&mp4=0&seccode=9d69d3f344ed7bd472ad054304d0bfa9&max_vid=198435
 #
-get 'view_video.php.viewkey=9d8bac2a24bc2c7b7452' => sub {
+get 'view_video.php.viewkey=\S+' => sub {
     my ( $self, $dom, $ctx ) = @_;
     my $ret = { data => [], nexts => [] };
 
