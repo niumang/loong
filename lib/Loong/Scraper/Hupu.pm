@@ -1,9 +1,7 @@
 package Loong::Scraper::Hupu;
 
-use Loong::Base 'Loong::Scraper';
-use Loong::Route;
-use Data::Dumper;
-use Encode qw(decode_utf8);
+use Loong::Scraper -route;
+use utf8;
 
 my $nba_terms = {
     '平均得分'             => 'PPG',
@@ -70,11 +68,7 @@ get 'nba.hupu.com/schedule$' => sub {
     my @nexts;
 
     for my $e ($dom->find('span.team_name')->each) {
-        my $item = {
-            url  => $e->at('a')->{href},
-            name => $e->all_text,
-        };
-        push @nexts, $item;
+        push @nexts, { url  => $e->at('a')->{href}, name => $e->all_text, };
     }
     $ret->{nexts} = \@nexts;
     return $ret;

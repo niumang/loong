@@ -54,11 +54,9 @@ sub transfer_data {
 
         my $start = (split(',', $source))[0];
         my $cursor = $self->mango->db($mango_db)->collection($start)->find();
-
-        die "db.$mango_db.$start 元数据是空的" unless $cursor;
-
         my $count = 0;
         my $index = delete $config->{$table}->{index};
+
         die "无效的唯一索引 $index" unless $index;
 
         # todo: 数据库分页处理，防止 db 因为插入过大崩溃
@@ -108,9 +106,7 @@ sub object_cnd {
     my ($self, $table, $index, $doc) = @_;
 
     my $cnd = {};
-    for my $name (split(',', $index)) {
-        $cnd->{$name} = $doc->{$name};
-    }
+    $cnd->{$_} = $doc->{$_} for split(',',$index);
     return $cnd;
 }
 

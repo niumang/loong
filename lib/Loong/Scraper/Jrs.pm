@@ -1,7 +1,6 @@
 package Loong::Scraper::Jrs;
 
-use Loong::Base 'Loong::Scraper';
-use Loong::Route;
+use Loong::Scraper -route;
 use Mojo::DOM;
 use Data::Dumper;
 use Encode qw(decode_utf8);

@@ -11,6 +11,7 @@ use Mojo::URL;
 use Mojo::DOM;
 use Mojo::Util qw(dumper);
 use Mojo::Loader qw(load_class);
+use Mojo::UserAgent::CookieJar;
 
 use Loong::Mojo::Log;
 use Loong::Mojo::UserAgent;
@@ -21,7 +22,7 @@ use Loong::Config;
 use Loong::Queue::Worker;
 use Loong::Utils::Scraper;
 
-use constant MAX_CURRENCY => 4;
+use constant MAX_CURRENCY => 20;
 use constant DEBUG => $ENV{LOONG_DEBUG} || 0;
 
 # TODO suport save cookie cache
@@ -38,9 +39,20 @@ has queue_name   => sub { join('_', 'crawl', shift->seed) };
 has queue => sub { Loong::Queue->new(mysql => (shift->config->mysql_uri)) };
 has worker => sub { shift->queue->repair->worker };
 has mango  => sub { Loong::DB::Mango->new(shift->config->mango_uri) };
+has 'scraper';
 
 sub new {
     my $self = shift->SUPER::new(@_);
+
+    $self->_spec_scraper;
+    if(my $proxy = $self->site_config->{ua}->{proxy}){
+        $self->ua->proxy->http('http://'.$proxy)->https('https://'.$proxy);
+    }
+    if(my $jar = $self->site_config->{ua}->{cookie_jar}){
+        $self->ua->cookie_jar(Mojo::UserAgent::CookieJar->new);
+        $self->ua->get($jar);
+    }
+    $self->log->debug("cookie =".dumper($self->ua->cookie_jar) );
 
     return $self if DEBUG;
 
@@ -48,6 +60,7 @@ sub new {
     $self->queue->add_task(crawl => sub { shift->emit('crawl', shift) });
     $self->on(empty      => sub { $self->log->debug("没有任务了"); });
     $self->on(crawl_fail => sub { $self->handle_failed_task(@_) },);
+
     return $self;
 }
 
@@ -88,19 +101,21 @@ sub init {
     my ($self, $url) = @_;
     $url ||= $self->seed;
 
+    my $interval = $self->site_config->{ua}->{interval} || $self->shuffle;
     my $id = Mojo::IOLoop->recurring(
-        $self->shuffle => sub {
-            my $job = $self->worker->register->dequeue($self->shuffle, {queues => [$self->queue_name]});
+        rand($interval) => sub {
+            while(1){
+                my $job = $self->worker->register->dequeue($self->shuffle, {queues => [$self->queue_name]});
 
-            return $self->emit('empty') unless $job;
+                return $self->emit('empty') unless $job;
 
-            my $task_info = $job->args->[0];
-            my $url       = $task_info->{url};
-            return
-                 if $self->ua->active_conn >= $self->max_currency
-              || !$url
-              || $self->ua->active_host($url) >= $self->max_currency;
-            return $self->process_job($url, $task_info->{context});
+                my $task_info = $job->args->[0];
+                my $url       = $task_info->{url};
+                return if ($self->ua->active_conn && $self->ua->active_conn >= $self->max_currency)
+                    || !$url
+                    || $self->ua->active_host($url) >= $self->site_config->{ua}{max_active};
+                $self->process_job($url, $task_info->{context});
+            }
         },
     );
     push @{$self->{_loop_id}}, $id;
@@ -126,7 +141,7 @@ sub process_job {
     $context->{extra_config} = $self->extra_config;
     $context->{parent} ||= '';
 
-    $self->log->debug("开始抓取 url => $url");
+    $self->log->info("开始抓取 url => $url");
     $self->ua->start(
         $tx => sub {
             my ($ua, $tx) = @_;
@@ -137,13 +152,15 @@ sub process_job {
                 for my $item (@{$ret->{data}}) {
                     $item->{parent}  = $context->{parent};
                     $item->{url_md5} = md5_hex $item->{url};
-                    $self->log->debug("保存到 mango collection-<$collection>: " . Dump($item));
-                    $self->mango->save_crawl_info($item, $self->seed, $collection);
+                    unless(DEBUG){
+                        $self->log->debug("保存到 mango collection-<$collection>: " . Dump($item));
+                        $self->mango->save_crawl_info($item, $self->seed, $collection);
+                    }
                 }
             }
+
             return $self->stop if DEBUG;
             $self->continue_with_scraped($_, "$url", $context) for @{$ret->{nexts}};
-            return;
         },
     );
 }
@@ -152,14 +169,19 @@ sub _spec_scraper {
     my ($self, $domain) = @_;
     $domain ||= $self->seed;
     $domain =~ s/www.//g;
-    my $pkg;
-    if (my $alias = $self->site_config->{entry}->{alias}) {
-        $pkg = join('::', 'Loong', 'Scraper', ucfirst $alias);
+    $domain =~ s/www.//g;
+    my $alias = $self->site_config->{entry}->{alias};
+    my $pkg = join('::','Loong','Scraper',ucfirst( $alias ? $alias : [split('\.', $domain)]->[0]) );
+    my $scraper;
+    eval {
+        load_class $pkg;
+        $scraper = $pkg->new( domain => $domain );
+    };
+    if($@){
+        $self->log->error("加载 scraper 模块失败 $@");
+        die $@;
     }
-    else {
-        $pkg = join('::', 'Loong', 'Scraper', ucfirst([split('\.', $domain)]->[0]));
-    }
-    return $pkg;
+    $self->scraper($scraper);
 }
 
 sub scrape {
@@ -175,18 +197,13 @@ sub scrape {
     }
     my $type   = $res->headers->content_type;
     my $method = $tx->req->method;
-    my $pkg    = $self->_spec_scraper;
-    $self->log->debug("查找到解析的模块 $pkg");
 
     # TODO support img and file content
     # TODO add scraper cached in memory
     $self->cache_resouce($tx) if DEBUG;
     if ($type && $type =~ qr{^(text|application)/(html|xml|xhtml|javascript)}) {
         eval {
-            $context->{type} = $2;
-            load_class $pkg;
-            my $scraper = $pkg->new;
-            $ret = $scraper->find($method => $url)->scrape($res, $context);
+            $ret = $self->scraper->scrape($url, $res, $context);
             $self->log->debug("解析 url => $url  => " . Dump($ret));
         };
         if ($@) {
@@ -210,23 +227,21 @@ sub continue_with_scraped {
 sub prepare_http {
     my ($self, $url) = @_;
 
-    # TODO prepare cookie proxy pre-request post request
-    # $self->emit($_) for qw( cookie ip_pool pre_form);
-    my $method  = $self->extra_config->{method} || 'get';
-    my $headers = $self->extra_config->{headers};
-    my $form    = $self->extra_config->{form};
-    my @args    = ($method, $url);
+    $self->scraper->match($url);
+    $self->ua->cookie_script($self->site_config->{ua}->{cookie_script});
 
-    push(@args, form    => $form)    if $form;
-    push(@args, headers => $headers) if $headers;
+    my ($method,$headers,$form) = (map { $self->scraper->$_ } qw(method headers form) );
+    $self->log->debug("Proxy: ".$self->ua->proxy->http) if $self->ua->proxy->http;
+    $self->log->debug("请求参数" . sprintf('method=%s, headers=%s, form=%s', $method,dumper $headers,dumper $form) );
+    my @args;
+    push @args,$headers if $headers;
+    push @args,(form => $form) if $form;
 
-    $self->log->debug("准备好 http 参数" . dumper(\@args));
-
-    return $self->ua->build_tx(@args);
+    return $self->ua->build_tx( uc $method => $url => @args);
 }
 
 sub shuffle {
-    return int(rand(5));
+    return rand(1);
 }
 
 sub clock_speed {
