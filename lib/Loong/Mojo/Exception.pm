@@ -4,4 +4,3 @@ use Loong::Base 'Mojo::Exception';
 
 1
 
-

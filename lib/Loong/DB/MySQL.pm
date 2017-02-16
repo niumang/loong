@@ -12,7 +12,8 @@ use constant DEBUG => $ENV{LOONG_DEBUG};
 has sql => sub { SQL::Abstract->new };
 has sqat => sub {
     SQL::Abstract::Tree->new(
-        {   profile              => 'console',
+        {
+            profile              => 'console',
             fill_in_placeholders => 1,
         }
     );
@@ -29,33 +30,32 @@ sub new {
 sub _execute {
     my $self = shift;
     my $op   = shift;
-    my ($sql, @binds) = $self->sql->$op(@_);
+    my ( $sql, @binds ) = $self->sql->$op(@_);
 
     if (DEBUG) {
-        my $pretty_sql = $self->sqat->format($sql, \@binds);
+        my $pretty_sql = $self->sqat->format( $sql, \@binds );
         print "执行 SQL 语句:\n $pretty_sql\n";
     }
-    return $self->db->query($sql, @binds);
+    return $self->db->query( $sql, @binds );
 }
 
 sub insert_or_update {
-    my ($self, $table, $info, $where) = @_;
-    my $hash = $self->select($table, ['*'], $where)->hash;
-    return $hash ? $self->update($table, $info, $where) : $self->insert($table, $info);
+    my ( $self, $table, $info, $where ) = @_;
+    my $hash = $self->select( $table, ['*'], $where )->hash;
+    return $hash ? $self->update( $table, $info, $where ) : $self->insert( $table, $info );
 }
 
-sub _baisc_operation {qw(select insert update delete)}
+sub _baisc_operation { qw(select insert update delete) }
 
 {
     no strict 'refs';
     no strict 'subs';
     for my $method (_baisc_operation) {
         monkey_patch __PACKAGE__, $method, sub {
-            return shift->_execute($method, @_);
+            return shift->_execute( $method, @_ );
           }
     }
 }
 
 1;
-
 

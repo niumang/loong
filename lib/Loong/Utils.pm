@@ -17,32 +17,30 @@ our @EXPORT_OK = (qw(merge_hash trim_domain trim));
 
 # todo:  merge hash 同key不同值
 sub merge_hash {
-    my ($hash_a, $hash_b) = @_;
+    my ( $hash_a, $hash_b ) = @_;
 
-    if (ref $hash_a ne 'HASH' || ref $hash_b ne 'HASH') {
+    if ( ref $hash_a ne 'HASH' || ref $hash_b ne 'HASH' ) {
         die "merge_hash 2个元素必须都是hash的引用";
     }
     my $final_hash = clone $hash_a;
-    for my $b_key (keys %$hash_b) {
+    for my $b_key ( keys %$hash_b ) {
         $final_hash->{$b_key} = $hash_b->{$b_key} if !exists $hash_a->{$b_key};
     }
     return $final_hash;
 }
 
-sub trim_domain{
+sub trim_domain {
     my ($s) = @_;
-    $s=~ s/www.//g;
-    $s=~ s/\.(?:com|me|pl|net|zh|org|cn|info|tw)$//g;
+    $s =~ s/www.//g;
+    $s =~ s/\.(?:com|me|pl|net|zh|org|cn|info|tw)$//g;
     return $s;
 }
 
-
-sub trim{
+sub trim {
     my ($s) = @_;
     $s =~ s/\s+$//g;
     $s =~ s/^\s+$//g;
     return $s;
 }
-
 
 1;

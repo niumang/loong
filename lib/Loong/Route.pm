@@ -8,18 +8,18 @@ use Data::Dumper;
 
 use constant DEBUG => $ENV{LOONG_DEBUG} || 0;
 
-sub import{
+sub import {
     $ENV{LOONG_EXE} ||= (caller)[1];
 
     my $caller = caller;
     no strict 'refs';
 
     my $scraper = {};
-    for my $name(qw(get post put delete)){
-        monkey_patch $caller =>  $name =>  sub {
+    for my $name (qw(get post put delete)) {
+        monkey_patch $caller => $name => sub {
             my $url_pattern = shift;
-            my $cb = pop;
-            my $headers = shift;
+            my $cb          = pop;
+            my $headers     = shift;
             $scraper->{$url_pattern}->{$name} = { method => $name, cb => $cb, headers => $headers };
         };
     }
@@ -28,9 +28,9 @@ sub import{
         return $scraper;
     };
     monkey_patch $caller, 'find' => sub {
-        my ($self,$method,$url) = @_;
+        my ( $self, $method, $url ) = @_;
         my $host = Mojo::URL->new($url)->host;
-        my ($key) = grep { $url=~ m/$_/ } keys %$scraper;
+        my ($key) = grep { $url =~ m/$_/ } keys %$scraper;
         $self->key($key);
         $self->method($method);
         return $self;
@@ -39,7 +39,6 @@ sub import{
 }
 
 1;
-
 
 __END__
 

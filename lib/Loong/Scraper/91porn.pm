@@ -11,8 +11,7 @@ get 'v.php.next=watch$' => sub {
     my @nexts;
     my $total = $dom->at('#paging')->find('a')->[-2]->text;
     @nexts =
-      map { { url => join( '', $ctx->{base}, '?next=watch&page=', $_ ) } }
-      ( 1 .. $total );
+      map { { url => join( '', $ctx->{base}, '?next=watch&page=', $_ ) } } ( 1 .. $total );
     $ret->{nexts} = \@nexts;
 
     return $ret;
@@ -44,7 +43,7 @@ get 'view_video.php.viewkey=\S+' => sub {
     my ( $self, $dom, $ctx ) = @_;
     my $ret = { data => [], nexts => [] };
 
-    my $html = "$dom";
+    my $html    = "$dom";
     my %matched = $html =~ m/so.addVariable.'(.+?)','(.+?)'./sig;
     my $json_url =
         $ctx->{base}
@@ -66,7 +65,7 @@ get 'getfile.php.+\d+$' => sub {
     my $ret = { data => [], nexts => [] };
 
     my $html = "$dom";
-    if($html=~ m/file=(\S+)/si){
+    if ( $html =~ m/file=(\S+)/si ) {
         push @{ $ret->{nexts} }, { url => url_unescape($1) };
     }
     return $ret;

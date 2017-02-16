@@ -40,18 +40,18 @@ my $player_terms = {
 
 # https://nba.hupu.com/teams
 get 'hupu.com/teams$' => sub {
-    my ($self, $dom, $ctx) = @_;
+    my ( $self, $dom, $ctx ) = @_;
     my $url = $ctx->{url};
-    my $ret = {data => [], nexts => [], collection => 'teams'};
+    my $ret = { data => [], nexts => [], collection => 'teams' };
 
     my $game = $dom->at('div.gamecenter_content');
     my @nexts;
     my @data;
-    for my $team ($game->find('a.a_teamlink')->each) {
+    for my $team ( $game->find('a.a_teamlink')->each ) {
         my $item = {};
-        ($item->{win}, $item->{los}) = $team->at('p')->text =~ m/(\d+).(\d+)/;
+        ( $item->{win}, $item->{los} ) = $team->at('p')->text =~ m/(\d+).(\d+)/;
         $item->{url} = $team->attr('href');
-        ($item->{name}) = $item->{url} =~ m{/(\w+)$};
+        ( $item->{name} ) = $item->{url} =~ m{/(\w+)$};
         $item->{logo}    = $team->at('img')->{src};
         $item->{zh_name} = $team->at('h2')->text;
         push @nexts, $item;
@@ -63,34 +63,35 @@ get 'hupu.com/teams$' => sub {
 };
 
 get 'nba.hupu.com/schedule$' => sub {
-    my ($self, $dom, $ctx) = @_;
-    my $ret = {data => [], nexts => [], collection => 'schedule'};
+    my ( $self, $dom, $ctx ) = @_;
+    my $ret = { data => [], nexts => [], collection => 'schedule' };
     my @nexts;
 
-    for my $e ($dom->find('span.team_name')->each) {
-        push @nexts, { url  => $e->at('a')->{href}, name => $e->all_text, };
+    for my $e ( $dom->find('span.team_name')->each ) {
+        push @nexts, { url => $e->at('a')->{href}, name => $e->all_text, };
     }
     $ret->{nexts} = \@nexts;
     return $ret;
 };
 
 get '/schedule/\w+$' => sub {
-    my ($self, $dom, $ctx) = @_;
-    my $ret = {data => [], nexts => [], collection => 'schedule'};
+    my ( $self, $dom, $ctx ) = @_;
+    my $ret = { data => [], nexts => [], collection => 'schedule' };
     my @nexts;
 
     my $ht;
     my $url = $ctx->{tx}->req->url;
     my $team;
-    if ("$url" =~ m{schedule/(\w+)$}) {
+    if ( "$url" =~ m{schedule/(\w+)$} ) {
         $team = $1;
     }
 
     my @schedules;
-    for my $tr ($dom->find('tr.left')->each) {
+    for my $tr ( $dom->find('tr.left')->each ) {
         my $text = $tr->all_text;
         my $item;
-        if ($text =~ m{
+        if (
+            $text =~ m{
                 (\S+)\s+vs\s+(\S+).*? # 马刺 vs 太阳
                 (\d+|)\s+-\s+(\d+|).*? # 86 - 91
                 (\d+-\d+-\d+\s+\d+:\d+:\d+) # 2016-10-04 10:00:00
@@ -105,7 +106,7 @@ get '/schedule/\w+$' => sub {
             $item->{team}       = $team;
             $item->{url}        = "$url";
         }
-        if ($text =~ m/(胜|负)/) {
+        if ( $text =~ m/(胜|负)/ ) {
             $item->{result} = $1;
         }
         push @schedules, $item if $item;
@@ -115,20 +116,20 @@ get '/schedule/\w+$' => sub {
 };
 
 get 'nba.hupu.com/teams/\w+' => sub {
-    my ($self, $dom, $ctx) = @_;
-    my $ret = {data => [], nexts => [], collection => 'team_stat'};
+    my ( $self, $dom, $ctx ) = @_;
+    my $ret = { data => [], nexts => [], collection => 'team_stat' };
 
     my $url = $ctx->{tx}->req->url;
     my @nexts;
 
     my $data_ref;
     my $team = $dom->at('div.table_team_box')->all_text;
-    if ($team =~ m/(场均失分).*?([\d\.]+)/s) {
-        $data_ref->{$nba_terms->{$1}} = $2;
+    if ( $team =~ m/(场均失分).*?([\d\.]+)/s ) {
+        $data_ref->{ $nba_terms->{$1} } = $2;
     }
-    _parse_nba_pro_terms($dom, $data_ref);
-    for my $e ($dom->at('div.jiben_title_table')->find('a')->each) {
-        push @nexts, {url => $e->{href}, title => $e->{title},};
+    _parse_nba_pro_terms( $dom, $data_ref );
+    for my $e ( $dom->at('div.jiben_title_table')->find('a')->each ) {
+        push @nexts, { url => $e->{href}, title => $e->{title}, };
     }
     $data_ref->{home} =~ s/'//g;
     $data_ref->{home} =~ s/\s+$//g;
@@ -141,8 +142,8 @@ get 'nba.hupu.com/teams/\w+' => sub {
 };
 
 get 'nba.hupu.com/players/.+html' => sub {
-    my ($self, $dom, $ctx) = @_;
-    my $ret  = {data => [], nexts => [], collection => 'player'};
+    my ( $self, $dom, $ctx ) = @_;
+    my $ret  = { data => [], nexts => [], collection => 'player' };
     my $data = {};
     my $url  = $ctx->{tx}->req->url;
     $data->{url}     = "$url";
@@ -150,24 +151,25 @@ get 'nba.hupu.com/players/.+html' => sub {
     $data->{profile} = $dom->at('div.team_data')->find('img')->first->{src};
 
     # 泰勒-恩尼斯（Tyler Ennis）
-    if ($data->{name} =~ m{(\S+?)（(.*?)）}s) {
+    if ( $data->{name} =~ m{(\S+?)（(.*?)）}s ) {
         $data->{name}    = $2;
         $data->{zh_name} = $1;
     }
-    _parse_nba_pro_terms($dom, $data);
+    _parse_nba_pro_terms( $dom, $data );
     $ret->{data} = [$data];
     return $ret;
 };
 
 sub _parse_nba_pro_terms {
-    my ($dom, $ret) = @_;
+    my ( $dom, $ret ) = @_;
 
     my $content = $dom->at('div.content_a')->all_text;
     my $team    = $dom->at('div.table_team_box')->all_text;
-    if ($team =~ m/(场均失分).*?([\d\.]+)/s) {
-        $ret->{$nba_terms->{$1}} = $2;
+    if ( $team =~ m/(场均失分).*?([\d\.]+)/s ) {
+        $ret->{ $nba_terms->{$1} } = $2;
     }
-    if ($content =~ m{
+    if (
+        $content =~ m{
         进入NBA：(\d+)年.*? # 进入NBA：1976年
         主场：(.*?) 分区：(.*?) # 主场：AT&T 中心 分区：西南赛区
         官网：(\S+).*?    # 官网：http://www.nba.com/spurs/
@@ -200,19 +202,19 @@ sub _parse_nba_pro_terms {
 
     my $player_info = {};
     my $node        = $dom->at('div.team_data > div > div.content_a > div > div.font');
-    for my $p ($node->find('p')->each) {
-        if ($p->all_text =~ m/(\S+)：(.*)/) {
-            $ret->{$player_terms->{$1}} = $2 if $player_terms->{$1};
+    for my $p ( $node->find('p')->each ) {
+        if ( $p->all_text =~ m/(\S+)：(.*)/ ) {
+            $ret->{ $player_terms->{$1} } = $2 if $player_terms->{$1};
         }
     }
-    if ("$node" =~ m{teams/(\w+)}) {
+    if ( "$node" =~ m{teams/(\w+)} ) {
         $ret->{team} = $1;
     }
-    for my $item ($dom->at('div.team_qushi')->find('a')->each) {
+    for my $item ( $dom->at('div.team_qushi')->find('a')->each ) {
         my $text = $item->{tit};
 
         #得分变化趋势图    平均得分： 105.4 分
-        if ($text =~ m{(\S+)：.*?([\d\.]+)}six) {
+        if ( $text =~ m{(\S+)：.*?([\d\.]+)}six ) {
             my $term = $nba_terms->{$1};
             $ret->{$term} = $2;
         }

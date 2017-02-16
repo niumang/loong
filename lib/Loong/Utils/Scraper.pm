@@ -12,9 +12,7 @@ use List::Util;
 use MIME::Base64 qw(decode_base64 encode_base64);
 use Time::HiRes ();
 
-our @EXPORT_OK = (
-  qw(decode_body),
-);
+our @EXPORT_OK = ( qw(decode_body), );
 
 sub decode_body {
 }
