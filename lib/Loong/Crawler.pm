@@ -105,7 +105,8 @@ sub init {
     my $id = Mojo::IOLoop->recurring(
         rand($interval) => sub {
             while (1) {
-                my $job = $self->worker->register->dequeue( $self->shuffle, { queues => [ $self->queue_name ] } );
+                my $job = $self->worker->register->dequeue( $self->shuffle,
+                    { queues => [ $self->queue_name ] } );
 
                 return $self->emit('empty') unless $job;
 
@@ -154,7 +155,8 @@ sub process_job {
                     $item->{parent}  = $context->{parent};
                     $item->{url_md5} = md5_hex $item->{url};
                     unless (DEBUG) {
-                        $self->log->debug( "保存到 mango collection-<$collection>: " . Dump($item) );
+                        $self->log->debug(
+                            "保存到 mango collection-<$collection>: " . Dump($item) );
                         $self->mango->save_crawl_info( $item, $self->seed, $collection );
                     }
                 }
@@ -172,7 +174,9 @@ sub _spec_scraper {
     $domain =~ s/www.//g;
     $domain =~ s/www.//g;
     my $alias = $self->site_config->{entry}->{alias};
-    my $pkg = join( '::', 'Loong', 'Scraper', ucfirst( $alias ? $alias : [ split( '\.', $domain ) ]->[0] ) );
+    my $pkg =
+      join( '::', 'Loong', 'Scraper',
+        ucfirst( $alias ? $alias : [ split( '\.', $domain ) ]->[0] ) );
     my $scraper;
     eval {
         load_class $pkg;
@@ -209,7 +213,9 @@ sub scrape {
         };
         if ($@) {
             $context->{fail}++ and $self->emit( 'crawl_fail', "$url", $context );
-            $self->log->debug("解析 html 文档失败: $@, 傻逼网站换代码了,检查下载的html文件吧");
+            $self->log->debug(
+                "解析 html 文档失败: $@, 傻逼网站换代码了,检查下载的html文件吧"
+            );
         }
     }
 
@@ -233,8 +239,8 @@ sub prepare_http {
 
     my ( $method, $headers, $form ) = ( map { $self->scraper->$_ } qw(method headers form) );
     $self->log->debug( "Proxy: " . $self->ua->proxy->http ) if $self->ua->proxy->http;
-    $self->log->debug(
-        "请求参数" . sprintf( 'method=%s, headers=%s, form=%s', $method, dumper $headers, dumper $form) );
+    $self->log->debug( "请求参数"
+          . sprintf( 'method=%s, headers=%s, form=%s', $method, dumper $headers, dumper $form) );
     my @args;
     push @args, $headers if $headers;
     push @args, ( form => $form ) if $form;

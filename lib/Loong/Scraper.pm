@@ -65,7 +65,9 @@ sub _trim_url {
 
 sub scrape {
     my ( $self, $url, $res, $ctx ) = @_;
-    $self->match($url);
+
+    # Loong::Lite 特殊处理
+    $self->match($url) unless $self->cb;
 
     Carp::croak "无效的 url 匹配: $url with pattern " . dumper($scraper) unless $self->key;
 
@@ -158,7 +160,8 @@ sub _guess_encoding {
 }
 
 sub match {
-    my ( $self, $url ) = @_;
+    my ( $self, $url, $opts ) = @_;
+    $scraper = $opts if $opts;
 
     # todo: 从 cache 获取 callback
     for my $key ( keys %$scraper ) {

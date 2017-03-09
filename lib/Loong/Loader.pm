@@ -70,7 +70,8 @@ sub transfer_data {
             }
 
             $count++;
-            my $result = $self->mysql->insert_or_update( $table, $row, $self->get_index_cnd( $index, $row ) );
+            my $result =
+              $self->mysql->insert_or_update( $table, $row, $self->get_index_cnd( $index, $row ) );
             $self->log->debug("插入 $count 条数据到 mysql 成功: $table ");
         }
     }
