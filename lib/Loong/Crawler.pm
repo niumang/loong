@@ -13,32 +13,33 @@ use Mojo::Util qw(dumper);
 use Mojo::Loader qw(load_class);
 use Mojo::UserAgent::CookieJar;
 
+use Loong::Queue;
+use Loong::Config;
+use Loong::Filter;
 use Loong::Mojo::Log;
 use Loong::Mojo::UserAgent;
 use Loong::Mojo::Exception;
 use Loong::DB::Mango;
-use Loong::Queue;
-use Loong::Config;
 use Loong::Queue::Worker;
 use Loong::Utils::Scraper;
 
-use constant MAX_CURRENCY => 20;
+use constant MAX_CONCURRENT => 20;
 use constant DEBUG => $ENV{LOONG_DEBUG} || 0;
 
-# TODO suport save cookie cache
-# TODO support proxy for http request
-# TODO support db name for seed
-has max_currency => MAX_CURRENCY;
+has max_concurrent => MAX_CONCURRENT;
 has seed => sub { $_[1] =~ s{http://}{}g; $_[1] };
 has config       => sub { Loong::Config->new };
 has log          => sub { Loong::Mojo::Log->new };
 has ua           => sub { Loong::Mojo::UserAgent->new };
-has url          => sub { Mojo::URL->new };
 has extra_config => sub { shift->site_config };
+has max_active   => sub { shift->site_config->{ua}->{max_active} };
 has queue_name   => sub { join( '_', 'crawl', shift->seed ) };
-has queue => sub { Loong::Queue->new( mysql => ( shift->config->mysql_uri ) ) };
-has worker => sub { shift->queue->repair->worker };
-has mango  => sub { Loong::DB::Mango->new( shift->config->mango_uri ) };
+has queue        => sub { Loong::Queue->new( mysql => ( shift->config->mysql_uri ) ) };
+has mango        => sub { Loong::DB::Mango->new( shift->config->mango_uri ) };
+has bloom        => sub { Loong::Filter->new };
+has is_debug     => DEBUG;
+has filter       => 0;
+has cache        => 0;
 has 'scraper';
 
 sub new {
@@ -58,8 +59,9 @@ sub new {
 
     $self->first_blood and $self->log->debug("添加task回调任务");
     $self->queue->add_task( crawl => sub { shift->emit( 'crawl', shift ) } );
-    $self->on( empty      => sub { $self->log->debug("没有任务了"); } );
-    $self->on( crawl_fail => sub { $self->handle_failed_task(@_) }, );
+    $self->on( empty      => sub { $self->log->debug("暂时没有任务了") } );
+    $self->on( crawl_fail => sub { shift->queue->update_failed_task(@_) });
+    $self->on( crawl_finish => sub { shift->queue->finished_task(@_) });
 
     return $self;
 }
@@ -69,14 +71,14 @@ sub handle_failed_task {
     delete $context->{$_} for qw(ua tx);
     my $args = { url => $url, context => $context };
     $self->log->debug("添加失败的 url -> $url 重新爬");
-    $self->log->debug( "minion 参数: " . Dump $args) if DEBUG;
-    $self->queue->enqueue( 'crawl', [$args], { queue => $self->queue_name } ) unless DEBUG;
+    $self->log->debug( "minion 参数: " . Dump $args);
+    $self->queue->enqueue( 'crawl', [$args], { queue => $self->queue_name } )
+      unless $self->is_debug;
 }
 
 sub site_config {
     my ($self) = @_;
-    my $s = $self->seed;
-    $s =~ s/www.//g;
+    (my $s = $self->seed) =~ s/www.//g;
     return $self->config->{site}->{$s}->{crawl};
 }
 
@@ -86,7 +88,7 @@ sub first_blood {
     my $home = $self->site_config->{entry}{home};
     $home =~ s/www.//g;
 
-    die "没有定义网站的入口 $home\n" unless $home;
+    Carp::croak "没有定义网站的入口 $home\n" unless $home;
 
     for my $url ( split( ',', $home ) ) {
         my $args = { url => $url, context => $self->extra_config };
@@ -102,21 +104,25 @@ sub init {
     $url ||= $self->seed;
 
     my $interval = $self->site_config->{ua}->{interval} || $self->shuffle;
+    my $worker = $self->queue->repair->worker->register;
     my $id = Mojo::IOLoop->recurring(
         rand($interval) => sub {
             while (1) {
-                my $job = $self->worker->register->dequeue( $self->shuffle,
-                    { queues => [ $self->queue_name ] } );
+                my $job = $worker->dequeue( 0, { queues => [ $self->queue_name ] } );
 
                 return $self->emit('empty') unless $job;
 
                 my $task_info = $job->args->[0];
                 my $url       = $task_info->{url};
+                if ( $self->filter && $self->bloom->is_crawled($url) ) {
+                    $self->log->info("链接: $url 已经爬过了");
+                    return;
+                }
                 return
-                     if ( $self->ua->active_conn && $self->ua->active_conn >= $self->max_currency )
+                  if ( $self->ua->active_conn && $self->ua->active_conn >= $self->max_concurrent )
                   || !$url
-                  || $self->ua->active_host($url) >= $self->site_config->{ua}{max_active};
-                $self->process_job( $url, $task_info->{context} );
+                  || $self->ua->active_host($url) >= $self->max_active;
+                $self->process_job( $url, $task_info->{context}, $job );
             }
         },
     );
@@ -133,36 +139,66 @@ sub stop {
 
 sub fuck { Mojo::IOLoop->start unless Mojo::IOLoop->is_running }
 
-sub process_job {
-    my ( $self, $url, $context ) = @_;
 
-    my $tx = $self->prepare_http($url);
+sub handle_res_status{
+    my ($self,$tx,$job) = @_;
+
+    if($tx->res->is_success){
+        $self->log->debug($tx->res->body) if $self->is_debug;
+    }
+    elsif($tx->res->is_error){
+        $self->queue->update_failed_task($job,$tx->res->message);
+        Carp::croak '下载出错了: '.$tx->res->message;
+    }
+    elsif ($tx->res->code == 301){
+        Carp::croak '你被重定向了到：'.$tx->res->headers->location;
+    }else{
+        Carp::croak '到底哦该了';
+    }
+
+}
+
+sub process_job {
+    my ( $self, $url, $context,$job ) = @_;
+
+    my ($matched,$tx) = $self->prepare_http($url);
     $context->{ua}           = $self->ua;
     $context->{tx}           = $tx;
     $context->{base}         = $self->seed;
     $context->{extra_config} = $self->extra_config;
+    $context->{job} = $job;
     $context->{parent} ||= '';
+    $context->{matched} = $matched;
 
     $self->log->info("开始抓取 url => $url");
     $self->ua->start(
         $tx => sub {
             my ( $ua, $tx ) = @_;
             my $ret;
-            $self->log->debug("上一层页面 $context->{parent}") unless DEBUG;
-            eval { $ret = $self->scrape( $tx, $context ) };
-            if ( my $collection = $ret->{collection} ) {
-                for my $item ( @{ $ret->{data} } ) {
-                    $item->{parent}  = $context->{parent};
-                    $item->{url_md5} = md5_hex $item->{url};
-                    unless (DEBUG) {
-                        $self->log->debug(
-                            "保存到 mango collection-<$collection>: " . Dump($item) );
+            eval {
+                $self->log->debug("上一层页面 $context->{parent}");
+                $ret = $self->scrape( $tx, $context );
+                my $collection = $tx->req->headers->header('collection') || $ret->{collection};
+                Carp::croak "解析结果为空" unless @{$ret->{data}};
+                if ( !$self->is_debug and $collection ) {
+                    for my $item ( @{ $ret->{data} } ) {
+                        $item->{parent}  = $context->{parent};
+                        $item->{url_md5} = md5_hex $item->{url};
+                        $self->log->debug( "保存到 collection=$collection " . Dump($item) );
                         $self->mango->save_crawl_info( $item, $self->seed, $collection );
                     }
                 }
+                $self->emit('crawl_finish', $job,'总算是爬完了');
+            };
+            if ($@) {
+                $self->log->error("解析失败: $@");
+                $self->emit('crawl_fail',$job,'解析失败: $@') 
             }
+            $self->log->debug( "解析结果: " . Dump($ret) );
+            $self->bloom->crawled($url) if !$self->is_debug and $ret->{data};
 
-            return $self->stop if DEBUG;
+            return $self->stop if $self->is_debug;
+
             $self->continue_with_scraped( $_, "$url", $context ) for @{ $ret->{nexts} };
         },
     );
@@ -172,7 +208,7 @@ sub _spec_scraper {
     my ( $self, $domain ) = @_;
     $domain ||= $self->seed;
     $domain =~ s/www.//g;
-    $domain =~ s/www.//g;
+
     my $alias = $self->site_config->{entry}->{alias};
     my $pkg =
       join( '::', 'Loong', 'Scraper',
@@ -186,7 +222,7 @@ sub _spec_scraper {
         $self->log->error("加载 scraper 模块失败 $@");
         die $@;
     }
-    $self->scraper($scraper);
+    return $self->scraper($scraper); 
 }
 
 sub scrape {
@@ -196,26 +232,20 @@ sub scrape {
     my $ret;
 
     if ( !$res->headers->content_length or !$res->body ) {
-        $context->{fail}++ and $self->emit( 'crawl_fail', "$url", $context );
-        $self->log->error("下载 url => $url 失败, 原因: $res->code");
-        return;
+        return $self->emit('crawl_fail',$context->{job},'解析失败: $@') 
     }
     my $type   = $res->headers->content_type;
     my $method = $tx->req->method;
 
     # TODO support img and file content
     # TODO add scraper cached in memory
-    $self->cache_resouce($tx) if DEBUG;
+    $self->cache_resouce($tx) if $self->is_debug;
     if ( $type && $type =~ qr{^(text|application)/(html|xml|xhtml|javascript)} ) {
         eval {
             $ret = $self->scraper->scrape( $url, $res, $context );
-            $self->log->debug( "解析 url => $url  => " . Dump($ret) );
         };
         if ($@) {
-            $context->{fail}++ and $self->emit( 'crawl_fail', "$url", $context );
-            $self->log->debug(
-                "解析 html 文档失败: $@, 傻逼网站换代码了,检查下载的html文件吧"
-            );
+            $self->log->debug( "解析 html 文档失败: $@, 傻逼网站换代码了,检查下载的html文件吧");
         }
     }
 
@@ -227,25 +257,27 @@ sub continue_with_scraped {
     delete $ctx->{$_} for qw(ua tx);
     my $args = { url => $next->{url}, context => { %$ctx, parent => $parent } };
     $self->log->debug("添加下一层 url -> $next->{url} 到 task 队列");
-    $self->log->debug( "minion 参数: " . Dump $args) if DEBUG;
-    $self->queue->enqueue( 'crawl', [$args], { queue => $self->queue_name } ) unless DEBUG;
+    $self->log->debug( "minion 参数: " . Dump $args);
+    $self->queue->enqueue( 'crawl', [$args], { queue => $self->queue_name } )
+      unless $self->is_debug;
 }
 
 sub prepare_http {
     my ( $self, $url ) = @_;
 
-    $self->scraper->match($url);
+    my $m = $self->scraper->match($url);
+
+    # 如果没有指定的 useragent 则使用池子里的随机元素
+    my $user_agent= $self->site_config->{ua}->{user_agent};
+    $self->ua->transactor->name($user_agent=~ m/^web|mobile$/ ? $self->ua->pool->get($user_agent) : $user_agent);
     $self->ua->cookie_script( $self->site_config->{ua}->{cookie_script} );
-
-    my ( $method, $headers, $form ) = ( map { $self->scraper->$_ } qw(method headers form) );
     $self->log->debug( "Proxy: " . $self->ua->proxy->http ) if $self->ua->proxy->http;
-    $self->log->debug( "请求参数"
-          . sprintf( 'method=%s, headers=%s, form=%s', $method, dumper $headers, dumper $form) );
+    $self->log->debug( "请求参数" . sprintf( 'method=%s, headers=%s, form=%s', $m->{method}, dumper $m->{header}, dumper $m->{form}) );
     my @args;
-    push @args, $headers if $headers;
-    push @args, ( form => $form ) if $form;
+    push @args, $m->{headers} if $m->{headers};
+    push @args, ( form => $m->{form}) if $m->{form};
 
-    return $self->ua->build_tx( uc $method => $url => @args );
+    return ($m,$self->ua->build_tx( uc $m->{method} => $url => @args ));
 }
 
 sub shuffle {
@@ -253,6 +285,7 @@ sub shuffle {
 }
 
 sub clock_speed {
+    return int(rand(60));
 }
 
 sub cache_resouce {

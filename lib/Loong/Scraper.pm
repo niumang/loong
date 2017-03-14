@@ -65,26 +65,18 @@ sub _trim_url {
 
 sub scrape {
     my ( $self, $url, $res, $ctx ) = @_;
+    my $m = $ctx->{matched};
+    $m||=$self->match($url);
 
-    # Loong::Lite 特殊处理
-    $self->match($url) unless $self->cb;
-
-    Carp::croak "无效的 url 匹配: $url with pattern " . dumper($scraper) unless $self->key;
-
-    if ( !defined $res ) {
-        use Mojo::UserAgent;
-        $res = Mojo::UserAgent->new->get($url)->res;
-    }
+    Carp::croak "无效的 url 匹配: $url with pattern " . dumper($scraper) unless $m->{key};
 
     my $type = $ctx->{type};
-    my $dom;
-    if ( defined $type && $type eq 'javascript' ) {
-        $dom = $res->body;
-    }
-    else {
-        $dom = Mojo::DOM->new( $self->decoded_body($res) );
-    }
-    return $self->cb->( $self, $dom, $ctx, @_ );
+    my $dom = ( defined $type && $type eq 'javascript' ) ? $res->body : Mojo::DOM->new( $self->decoded_body($res) );
+    my $ret = { data => [], nexts => [] };
+    $m->{cb}->( $self, $dom, $ctx, $ret);
+    $self->log->debug("解析结果: ".Dump($ret) );
+
+    return $ret;
 }
 
 sub resolve_href {
@@ -159,22 +151,22 @@ sub _guess_encoding {
     return _guess_encoding_css( $res->body )  if $type =~ qr{text/css};
 }
 
+# todo： 支持请求方法的匹配 get post put
 sub match {
-    my ( $self, $url, $opts ) = @_;
+    my ( $self, $url, $opts) = @_;
     $scraper = $opts if $opts;
 
+    my $matched = {};
     # todo: 从 cache 获取 callback
     for my $key ( keys %$scraper ) {
-        my ( $method, $pattern ) = $key =~ m/^(.+?)\|(.*)$/i;
-        next unless $url =~ m/$pattern/i;
-        next unless lc $self->method eq lc $method;
-
-        $self->url($url);
-        $self->cb( $scraper->{$key}->{cb} );
-        $self->headers( $scraper->{$key}->{headers} );
-        $self->key($key);
-        $self->form( $scraper->{$key}->{form} );
+        # method pattern
+        my ( $m, $p) = $key =~ m/^(.+?)\|(.*)$/i;
+        next unless $url =~ m/$p/i;
+        my $rule = $scraper->{$key};
+        $matched->{method} = $m;
+        $matched->{key} = $key;
+        $matched->{$_} = $rule->{$_} for qw(cb form headers);
     }
-    return $self;
+    return $matched;
 }
 1;

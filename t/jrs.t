@@ -7,7 +7,7 @@ use Loong::Crawler;
 use Loong::Scraper;
 
 my $url = shift;
-my $loong = Loong::Crawler->new(seed => 'nba.tmiaoo.com');
+my $loong = Loong::Crawler->new( seed => 'nba.tmiaoo.com' );
 $url ? $loong->beta_crawl($url) : $loong->init;
 $loong->fuck;
 

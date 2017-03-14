@@ -39,11 +39,9 @@ my $player_terms = {
 };
 
 # https://nba.hupu.com/teams
-get 'hupu.com/teams$' => sub {
-    my ( $self, $dom, $ctx ) = @_;
+get 'hupu.com/teams$' => { collection => 'teams' } => sub {
+    my ( $self, $dom, $ctx,$ret ) = @_;
     my $url = $ctx->{url};
-    my $ret = { data => [], nexts => [], collection => 'teams' };
-
     my $game = $dom->at('div.gamecenter_content');
     my @nexts;
     my @data;
@@ -59,24 +57,19 @@ get 'hupu.com/teams$' => sub {
     }
     $ret->{nexts} = \@nexts;
     $ret->{data}  = \@data;
-    return $ret;
 };
 
-get 'nba.hupu.com/schedule$' => sub {
-    my ( $self, $dom, $ctx ) = @_;
-    my $ret = { data => [], nexts => [], collection => 'schedule' };
+get 'nba.hupu.com/schedule$' => { collection=> 'schedule'} => sub {
+    my ( $self, $dom, $ctx, $ret ) = @_;
     my @nexts;
-
     for my $e ( $dom->find('span.team_name')->each ) {
         push @nexts, { url => $e->at('a')->{href}, name => $e->all_text, };
     }
     $ret->{nexts} = \@nexts;
-    return $ret;
 };
 
-get '/schedule/\w+$' => sub {
-    my ( $self, $dom, $ctx ) = @_;
-    my $ret = { data => [], nexts => [], collection => 'schedule' };
+get '/schedule/\w+$' => { collection => 'schedule' } => sub {
+    my ( $self, $dom, $ctx, $ret ) = @_;
     my @nexts;
 
     my $ht;
@@ -85,7 +78,6 @@ get '/schedule/\w+$' => sub {
     if ( "$url" =~ m{schedule/(\w+)$} ) {
         $team = $1;
     }
-
     my @schedules;
     for my $tr ( $dom->find('tr.left')->each ) {
         my $text = $tr->all_text;
@@ -115,10 +107,8 @@ get '/schedule/\w+$' => sub {
     return $ret;
 };
 
-get 'nba.hupu.com/teams/\w+' => sub {
-    my ( $self, $dom, $ctx ) = @_;
-    my $ret = { data => [], nexts => [], collection => 'team_stat' };
-
+get 'nba.hupu.com/teams/\w+' => { collection => 'team_stat' } => sub {
+    my ( $self, $dom, $ctx, $ret ) = @_;
     my $url = $ctx->{tx}->req->url;
     my @nexts;
 
@@ -137,12 +127,10 @@ get 'nba.hupu.com/teams/\w+' => sub {
     $data_ref->{url} = "$url";
     $ret->{nexts}    = \@nexts;
     $ret->{data}     = [$data_ref];
-
-    return $ret;
 };
 
-get 'nba.hupu.com/players/.+html' => sub {
-    my ( $self, $dom, $ctx ) = @_;
+get 'nba.hupu.com/players/.+html' => { collection => 'player' } => sub {
+    my ( $self, $dom, $ctx, $ret ) = @_;
     my $ret  = { data => [], nexts => [], collection => 'player' };
     my $data = {};
     my $url  = $ctx->{tx}->req->url;
@@ -157,7 +145,6 @@ get 'nba.hupu.com/players/.+html' => sub {
     }
     _parse_nba_pro_terms( $dom, $data );
     $ret->{data} = [$data];
-    return $ret;
 };
 
 sub _parse_nba_pro_terms {
