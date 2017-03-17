@@ -12,7 +12,7 @@ sub is_crawled {
 
     return 0 unless $self->redis->pfcount( $host, $url );
     my $rv = !$self->_add($url);
-    $rv||=0;
+    $rv ||= 0;
     return $rv;
 }
 

@@ -66,15 +66,18 @@ sub _trim_url {
 sub scrape {
     my ( $self, $url, $res, $ctx ) = @_;
     my $m = $ctx->{matched};
-    $m||=$self->match($url);
+    $m ||= $self->match($url);
 
     Carp::croak "无效的 url 匹配: $url with pattern " . dumper($scraper) unless $m->{key};
 
     my $type = $ctx->{type};
-    my $dom = ( defined $type && $type eq 'javascript' ) ? $res->body : Mojo::DOM->new( $self->decoded_body($res) );
+    my $dom =
+      ( defined $type && $type eq 'javascript' )
+      ? $res->body
+      : Mojo::DOM->new( $self->decoded_body($res) );
     my $ret = { data => [], nexts => [] };
-    $m->{cb}->( $self, $dom, $ctx, $ret);
-    $self->log->debug("解析结果: ".Dump($ret) );
+    $m->{cb}->( $self, $dom, $ctx, $ret );
+    $self->log->debug( "解析结果: " . Dump($ret) );
 
     return $ret;
 }
@@ -153,18 +156,20 @@ sub _guess_encoding {
 
 # todo： 支持请求方法的匹配 get post put
 sub match {
-    my ( $self, $url, $opts) = @_;
+    my ( $self, $url, $opts ) = @_;
     $scraper = $opts if $opts;
 
     my $matched = {};
+
     # todo: 从 cache 获取 callback
     for my $key ( keys %$scraper ) {
+
         # method pattern
-        my ( $m, $p) = $key =~ m/^(.+?)\|(.*)$/i;
+        my ( $m, $p ) = $key =~ m/^(.+?)\|(.*)$/i;
         next unless $url =~ m/$p/i;
         my $rule = $scraper->{$key};
         $matched->{method} = $m;
-        $matched->{key} = $key;
+        $matched->{key}    = $key;
         $matched->{$_} = $rule->{$_} for qw(cb form headers);
     }
     return $matched;

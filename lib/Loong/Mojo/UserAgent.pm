@@ -16,11 +16,11 @@ use constant DEBUG => $ENV{LOONG_DEBUG};
 
 has active_conn          => 0;
 has active_conn_per_host => sub { {} };
-has cookie_jar => sub { Loong::Mojo::UserAgent::CookieJar->new };
+has cookie_jar           => sub { Loong::Mojo::UserAgent::CookieJar->new };
 
 sub new {
-    my $class = shift;
-    my $self  = $class->SUPER::new(@_);
+    my $class      = shift;
+    my $self       = $class->SUPER::new(@_);
     my $cookie_jar = $self->cookie_jar;
     $self->on(
         start => sub {

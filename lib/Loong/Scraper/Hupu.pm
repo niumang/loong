@@ -40,8 +40,8 @@ my $player_terms = {
 
 # https://nba.hupu.com/teams
 get 'hupu.com/teams$' => { collection => 'teams' } => sub {
-    my ( $self, $dom, $ctx,$ret ) = @_;
-    my $url = $ctx->{url};
+    my ( $self, $dom, $ctx, $ret ) = @_;
+    my $url  = $ctx->{url};
     my $game = $dom->at('div.gamecenter_content');
     my @nexts;
     my @data;
@@ -59,7 +59,7 @@ get 'hupu.com/teams$' => { collection => 'teams' } => sub {
     $ret->{data}  = \@data;
 };
 
-get 'nba.hupu.com/schedule$' => { collection=> 'schedule'} => sub {
+get 'nba.hupu.com/schedule$' => { collection => 'schedule' } => sub {
     my ( $self, $dom, $ctx, $ret ) = @_;
     my @nexts;
     for my $e ( $dom->find('span.team_name')->each ) {

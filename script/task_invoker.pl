@@ -15,15 +15,16 @@ sub single_crawl {
     $site ||= Mojo::URL->new($url)->ihost;
 
     my $crawler;
-    eval { 
+    eval {
         $crawler = Loong::Crawler->new( seed => $site );
-        $crawler->log( Mojo::Log->new);
+        $crawler->log( Mojo::Log->new );
         $crawler->is_debug(1);
         $crawler->beta_crawl($url);
         $crawler->fuck;
     };
-    if($@){
-        die "可能域名和实际的配置文件不匹配，每一个爬虫都必须配置自己的规则";
+    if ($@) {
+        die
+          "可能域名和实际的配置文件不匹配，每一个爬虫都必须配置自己的规则";
     }
 }
 

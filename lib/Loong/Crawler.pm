@@ -34,12 +34,12 @@ has ua           => sub { Loong::Mojo::UserAgent->new };
 has extra_config => sub { shift->site_config };
 has max_active   => sub { shift->site_config->{ua}->{max_active} };
 has queue_name   => sub { join( '_', 'crawl', shift->seed ) };
-has queue        => sub { Loong::Queue->new( mysql => ( shift->config->mysql_uri ) ) };
-has mango        => sub { Loong::DB::Mango->new( shift->config->mango_uri ) };
-has bloom        => sub { Loong::Filter->new };
-has is_debug     => DEBUG;
-has filter       => 0;
-has cache        => 0;
+has queue => sub { Loong::Queue->new( mysql => ( shift->config->mysql_uri ) ) };
+has mango => sub { Loong::DB::Mango->new( shift->config->mango_uri ) };
+has bloom => sub { Loong::Filter->new };
+has is_debug => DEBUG;
+has filter   => 0;
+has cache    => 0;
 has 'scraper';
 
 sub new {
@@ -59,9 +59,9 @@ sub new {
 
     $self->first_blood and $self->log->debug("添加task回调任务");
     $self->queue->add_task( crawl => sub { shift->emit( 'crawl', shift ) } );
-    $self->on( empty      => sub { $self->log->debug("暂时没有任务了") } );
-    $self->on( crawl_fail => sub { shift->queue->update_failed_task(@_) });
-    $self->on( crawl_finish => sub { shift->queue->finished_task(@_) });
+    $self->on( empty        => sub { $self->log->debug("暂时没有任务了") } );
+    $self->on( crawl_fail   => sub { shift->queue->update_failed_task(@_) } );
+    $self->on( crawl_finish => sub { shift->queue->finished_task(@_) } );
 
     return $self;
 }
@@ -78,7 +78,7 @@ sub handle_failed_task {
 
 sub site_config {
     my ($self) = @_;
-    (my $s = $self->seed) =~ s/www.//g;
+    ( my $s = $self->seed ) =~ s/www.//g;
     return $self->config->{site}->{$s}->{crawl};
 }
 
@@ -104,8 +104,8 @@ sub init {
     $url ||= $self->seed;
 
     my $interval = $self->site_config->{ua}->{interval} || $self->shuffle;
-    my $worker = $self->queue->repair->worker->register;
-    my $id = Mojo::IOLoop->recurring(
+    my $worker   = $self->queue->repair->worker->register;
+    my $id       = Mojo::IOLoop->recurring(
         rand($interval) => sub {
             while (1) {
                 my $job = $worker->dequeue( 0, { queues => [ $self->queue_name ] } );
@@ -139,34 +139,34 @@ sub stop {
 
 sub fuck { Mojo::IOLoop->start unless Mojo::IOLoop->is_running }
 
+sub handle_res_status {
+    my ( $self, $tx, $job ) = @_;
 
-sub handle_res_status{
-    my ($self,$tx,$job) = @_;
-
-    if($tx->res->is_success){
-        $self->log->debug($tx->res->body) if $self->is_debug;
+    if ( $tx->res->is_success ) {
+        $self->log->debug( $tx->res->body ) if $self->is_debug;
     }
-    elsif($tx->res->is_error){
-        $self->queue->update_failed_task($job,$tx->res->message);
-        Carp::croak '下载出错了: '.$tx->res->message;
+    elsif ( $tx->res->is_error ) {
+        $self->queue->update_failed_task( $job, $tx->res->message );
+        Carp::croak '下载出错了: ' . $tx->res->message;
     }
-    elsif ($tx->res->code == 301){
-        Carp::croak '你被重定向了到：'.$tx->res->headers->location;
-    }else{
+    elsif ( $tx->res->code == 301 ) {
+        Carp::croak '你被重定向了到：' . $tx->res->headers->location;
+    }
+    else {
         Carp::croak '到底哦该了';
     }
 
 }
 
 sub process_job {
-    my ( $self, $url, $context,$job ) = @_;
+    my ( $self, $url, $context, $job ) = @_;
 
-    my ($matched,$tx) = $self->prepare_http($url);
+    my ( $matched, $tx ) = $self->prepare_http($url);
     $context->{ua}           = $self->ua;
     $context->{tx}           = $tx;
     $context->{base}         = $self->seed;
     $context->{extra_config} = $self->extra_config;
-    $context->{job} = $job;
+    $context->{job}          = $job;
     $context->{parent} ||= '';
     $context->{matched} = $matched;
 
@@ -179,7 +179,7 @@ sub process_job {
                 $self->log->debug("上一层页面 $context->{parent}");
                 $ret = $self->scrape( $tx, $context );
                 my $collection = $tx->req->headers->header('collection') || $ret->{collection};
-                Carp::croak "解析结果为空" unless @{$ret->{data}};
+                Carp::croak "解析结果为空" unless @{ $ret->{data} };
                 if ( !$self->is_debug and $collection ) {
                     for my $item ( @{ $ret->{data} } ) {
                         $item->{parent}  = $context->{parent};
@@ -188,11 +188,11 @@ sub process_job {
                         $self->mango->save_crawl_info( $item, $self->seed, $collection );
                     }
                 }
-                $self->emit('crawl_finish', $job,'总算是爬完了');
+                $self->emit( 'crawl_finish', $job, '总算是爬完了' );
             };
             if ($@) {
                 $self->log->error("解析失败: $@");
-                $self->emit('crawl_fail',$job,'解析失败: $@') 
+                $self->emit( 'crawl_fail', $job, '解析失败: $@' );
             }
             $self->log->debug( "解析结果: " . Dump($ret) );
             $self->bloom->crawled($url) if !$self->is_debug and $ret->{data};
@@ -222,7 +222,7 @@ sub _spec_scraper {
         $self->log->error("加载 scraper 模块失败 $@");
         die $@;
     }
-    return $self->scraper($scraper); 
+    return $self->scraper($scraper);
 }
 
 sub scrape {
@@ -232,7 +232,7 @@ sub scrape {
     my $ret;
 
     if ( !$res->headers->content_length or !$res->body ) {
-        return $self->emit('crawl_fail',$context->{job},'解析失败: $@') 
+        return $self->emit( 'crawl_fail', $context->{job}, '解析失败: $@' );
     }
     my $type   = $res->headers->content_type;
     my $method = $tx->req->method;
@@ -241,11 +241,11 @@ sub scrape {
     # TODO add scraper cached in memory
     $self->cache_resouce($tx) if $self->is_debug;
     if ( $type && $type =~ qr{^(text|application)/(html|xml|xhtml|javascript)} ) {
-        eval {
-            $ret = $self->scraper->scrape( $url, $res, $context );
-        };
+        eval { $ret = $self->scraper->scrape( $url, $res, $context ); };
         if ($@) {
-            $self->log->debug( "解析 html 文档失败: $@, 傻逼网站换代码了,检查下载的html文件吧");
+            $self->log->debug(
+                "解析 html 文档失败: $@, 傻逼网站换代码了,检查下载的html文件吧"
+            );
         }
     }
 
@@ -268,16 +268,25 @@ sub prepare_http {
     my $m = $self->scraper->match($url);
 
     # 如果没有指定的 useragent 则使用池子里的随机元素
-    my $user_agent= $self->site_config->{ua}->{user_agent};
-    $self->ua->transactor->name($user_agent=~ m/^web|mobile$/ ? $self->ua->pool->get($user_agent) : $user_agent);
+    my $user_agent = $self->site_config->{ua}->{user_agent};
+    $self->ua->transactor->name(
+        $user_agent =~ m/^web|mobile$/ ? $self->ua->pool->get($user_agent) : $user_agent );
     $self->ua->cookie_script( $self->site_config->{ua}->{cookie_script} );
     $self->log->debug( "Proxy: " . $self->ua->proxy->http ) if $self->ua->proxy->http;
-    $self->log->debug( "请求参数" . sprintf( 'method=%s, headers=%s, form=%s', $m->{method}, dumper $m->{header}, dumper $m->{form}) );
+    $self->log->debug(
+        "请求参数"
+          . sprintf(
+            'method=%s, headers=%s, form=%s',
+            $m->{method},
+            dumper $m->{header},
+            dumper $m->{form}
+          )
+    );
     my @args;
     push @args, $m->{headers} if $m->{headers};
-    push @args, ( form => $m->{form}) if $m->{form};
+    push @args, ( form => $m->{form} ) if $m->{form};
 
-    return ($m,$self->ua->build_tx( uc $m->{method} => $url => @args ));
+    return ( $m, $self->ua->build_tx( uc $m->{method} => $url => @args ) );
 }
 
 sub shuffle {
@@ -285,7 +294,7 @@ sub shuffle {
 }
 
 sub clock_speed {
-    return int(rand(60));
+    return int( rand(60) );
 }
 
 sub cache_resouce {
