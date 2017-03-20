@@ -4,8 +4,10 @@ use Mojo::Base -base;
 use Mojo::URL;
 use Mojo::DOM;
 use Mojo::Util qw(monkey_patch dumper);
-use Encode qw(find_encoding);
 use Loong::Mojo::Log;
+
+use Encode qw(find_encoding);
+use YAML qw(Dump);
 
 my $scraper = {};
 

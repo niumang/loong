@@ -63,8 +63,7 @@ sub _reload_cookie {
 
 sub rand_cookie {
     my ( $self, $data ) = @_;
-    my @cookies = @{$data};
-    return $cookies[ int( rand @cookies ) ];
+    return $data->[ int( rand @$data ) ];
 }
 1;
 

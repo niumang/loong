@@ -14,9 +14,8 @@ use Loong::Mojo::UserAgent::CookieJar;
 
 use constant DEBUG => $ENV{LOONG_DEBUG};
 
-has active_conn          => 0;
+has active_conn => 0;
 has active_conn_per_host => sub { {} };
-has cookie_jar           => sub { Loong::Mojo::UserAgent::CookieJar->new };
 
 sub new {
     my $class      = shift;
@@ -29,7 +28,7 @@ sub new {
             $self->active_host( $url, 1 );
             $tx->on(
                 finish => sub {
-                    $cookie_jar->cached_cookie($tx) if $cookie_jar->cookie_script;
+                    $self->cookie_jar->cached_cookie($tx) if $self->cookie_jar->cookie_script;
                     $self->active_host( $url, -1 );
                 }
             );

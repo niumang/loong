@@ -3,7 +3,7 @@ use Loong::DB::MySQL;
 use Data::Dumper;
 use Test::More;
 
-my $uri = 'mysql://root:root@127.0.0.1/nba';
+my $uri = 'mysql://root:root@127.0.0.1/mysql';
 
 my $mysql = Loong::DB::MySQL->new($uri);
 $mysql->db->query('DROP TABLE IF EXISTS `names`');

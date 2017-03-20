@@ -131,7 +131,6 @@ get 'nba.hupu.com/teams/\w+' => { collection => 'team_stat' } => sub {
 
 get 'nba.hupu.com/players/.+html' => { collection => 'player' } => sub {
     my ( $self, $dom, $ctx, $ret ) = @_;
-    my $ret  = { data => [], nexts => [], collection => 'player' };
     my $data = {};
     my $url  = $ctx->{tx}->req->url;
     $data->{url}     = "$url";

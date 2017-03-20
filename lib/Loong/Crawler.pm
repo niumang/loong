@@ -18,6 +18,7 @@ use Loong::Config;
 use Loong::Filter;
 use Loong::Mojo::Log;
 use Loong::Mojo::UserAgent;
+use Loong::Mojo::UserAgent::CookieJar;
 use Loong::Mojo::Exception;
 use Loong::DB::Mango;
 use Loong::Queue::Worker;
@@ -71,7 +72,6 @@ sub handle_failed_task {
     delete $context->{$_} for qw(ua tx);
     my $args = { url => $url, context => $context };
     $self->log->debug("添加失败的 url -> $url 重新爬");
-    $self->log->debug( "minion 参数: " . Dump $args);
     $self->queue->enqueue( 'crawl', [$args], { queue => $self->queue_name } )
       unless $self->is_debug;
 }
@@ -179,7 +179,6 @@ sub process_job {
                 $self->log->debug("上一层页面 $context->{parent}");
                 $ret = $self->scrape( $tx, $context );
                 my $collection = $tx->req->headers->header('collection') || $ret->{collection};
-                Carp::croak "解析结果为空" unless @{ $ret->{data} };
                 if ( !$self->is_debug and $collection ) {
                     for my $item ( @{ $ret->{data} } ) {
                         $item->{parent}  = $context->{parent};
@@ -232,7 +231,7 @@ sub scrape {
     my $ret;
 
     if ( !$res->headers->content_length or !$res->body ) {
-        return $self->emit( 'crawl_fail', $context->{job}, '解析失败: $@' );
+        return $self->emit( 'crawl_fail', $context->{job}, '下载页面失败: $@' );
     }
     my $type   = $res->headers->content_type;
     my $method = $tx->req->method;
@@ -242,7 +241,7 @@ sub scrape {
     $self->cache_resouce($tx) if $self->is_debug;
     if ( $type && $type =~ qr{^(text|application)/(html|xml|xhtml|javascript)} ) {
         eval { $ret = $self->scraper->scrape( $url, $res, $context ); };
-        if ($@) {
+        if ( $@ || !$ret->{data} ) {
             $self->log->debug(
                 "解析 html 文档失败: $@, 傻逼网站换代码了,检查下载的html文件吧"
             );
@@ -254,7 +253,7 @@ sub scrape {
 
 sub continue_with_scraped {
     my ( $self, $next, $parent, $ctx ) = @_;
-    delete $ctx->{$_} for qw(ua tx);
+    delete $ctx->{$_} for qw(ua tx job);
     my $args = { url => $next->{url}, context => { %$ctx, parent => $parent } };
     $self->log->debug("添加下一层 url -> $next->{url} 到 task 队列");
     $self->log->debug( "minion 参数: " . Dump $args);
@@ -271,7 +270,12 @@ sub prepare_http {
     my $user_agent = $self->site_config->{ua}->{user_agent};
     $self->ua->transactor->name(
         $user_agent =~ m/^web|mobile$/ ? $self->ua->pool->get($user_agent) : $user_agent );
-    $self->ua->cookie_script( $self->site_config->{ua}->{cookie_script} );
+
+    # 默认开启 cookie
+    $self->ua->cookie_jar( Loong::Mojo::UserAgent::CookieJar->new );
+    if ( my $script = $self->site_config->{ua}->{cookie_script} ) {
+        $self->ua->cookie_jar->cookie_script($script);
+    }
     $self->log->debug( "Proxy: " . $self->ua->proxy->http ) if $self->ua->proxy->http;
     $self->log->debug(
         "请求参数"
