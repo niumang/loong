@@ -39,12 +39,12 @@ sub import {
         my $url  = shift;
         my $opts = shift;
         my $s    = Loong::Scraper->new( domain => $url );
-        $s->match( $url, $scraper );
+        my $matched = $s->match( $url, $scraper );
         my @args;
-        my ( $method, $headers, $form ) = ( map { $s->$_ } qw(method headers form) );
+        my ( $method, $headers, $form ) = ( map { $matched->{$_} } qw(method headers form) );
         push @args, $headers if $headers;
         push @args, ( form => $form ) if $form;
-        my $tx = Mojo::UserAgent->new->$method( $url => @args );
+        my $tx = Mojo::UserAgent->new->max_redirects(5)->$method( $url => @args );
         $s->scrape( $url, $tx->res, $opts );
     };
     monkey_patch $caller => download => sub {
