@@ -58,7 +58,6 @@ sub new {
 
     return $self if DEBUG;
 
-    $self->first_blood and $self->log->debug("添加task回调任务");
     $self->queue->add_task( crawl => sub { shift->emit( 'crawl', shift ) } );
     $self->on( empty        => sub { $self->log->debug("暂时没有任务了") } );
     $self->on( crawl_fail   => sub { shift->queue->update_failed_task(@_) } );
@@ -83,17 +82,23 @@ sub site_config {
 }
 
 sub first_blood {
-    my ($self) = @_;
-    my $url = $self->seed =~ m/^http/ ? $self->seed : 'http://' . $self->seed;
+    my ( $self, $url ) = @_;
+
+    # 根据参数指定的url压入发送队列
+    if ($url) {
+        my $args = { url => $url, context => $self->extra_config };
+        $self->log->info("加入种子任务: url => $url");
+        return $self->queue->enqueue( 'crawl' => [$args] => { queue => $self->queue_name, } );
+    }
+
     my $home = $self->site_config->{entry}{home};
+    $url ||= $self->seed =~ m/^http/ ? $self->seed : 'http://' . $self->seed;
     $home =~ s/www.//g;
-
     Carp::croak "没有定义网站的入口 $home\n" unless $home;
-
     for my $url ( split( ',', $home ) ) {
         my $args = { url => $url, context => $self->extra_config };
         $self->queue->enqueue( 'crawl' => [$args] => { queue => $self->queue_name, } );
-        $self->log->debug("加入种子任务: url => $url");
+        $self->log->info("加入种子任务: url => $url");
     }
 
     return 1;
@@ -155,7 +160,7 @@ sub handle_res_status {
     else {
         Carp::croak '到底哦该了';
     }
-
+    return;
 }
 
 sub process_job {

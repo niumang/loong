@@ -7,7 +7,7 @@ use Parallel::ForkManager;
 use Loong::Crawler;
 use Carp;
 
-use constant MAX_PROCESS_NUM => 1;
+use constant MAX_PROCESS_NUM => 0;
 
 sub single_crawl {
     my $site = shift;
@@ -23,7 +23,7 @@ sub single_crawl {
         $crawler->fuck;
     };
     if ($@) {
-        die
+        Carp::croak
           "可能域名和实际的配置文件不匹配，每一个爬虫都必须配置自己的规则";
     }
 }
@@ -36,24 +36,30 @@ sub run {
     Carp::croak '代码执行需要指定一个你要爬取的站名'
       unless $opts->{site};
 
-    my $pool           = $opts->{fork} || MAX_PROCESS_NUM;
-    my $pm             = Parallel::ForkManager->new($pool);
-    my $max_concurrent = $opts->{concurrent} || 10;
-    my $max_active     = $opts->{max_active};
-    my $cache          = $opts->{cache} || 0;
-    my $site           = $opts->{site};
+    my $pool       = $opts->{fork} || MAX_PROCESS_NUM;
+    my $max_active = $opts->{max_active};
+    my $cache      = $opts->{cache} || 0;
+    my $site       = $opts->{site};
 
+    # 防止多进程重复插入任务，首先初始化一把
+    my $worker = Loong::Crawler->new( seed => $site );
+    $worker->first_blood();
+
+    return $pool
+      ? multi_process( $pool, { max_active => $max_active, cache => $cache, site => $site } )
+      : $worker->init->fuck;
+}
+
+sub multi_process {
+    my ( $pool, $opts ) = @_;
+
+    my $site = delete $opts->{site};
+    my $pm   = Parallel::ForkManager->new($pool);
   LOOP:
     for my $loop ( 1 .. $pool ) {
         my $pid = $pm->start and next LOOP;
-
         my $lc = Loong::Crawler->new( seed => $site );
-        $lc->init;
-        $lc->max_concurrent($max_concurrent) if $max_concurrent;
-        $lc->cache($cache)                   if $cache;
-        $lc->max_active($max_active)         if $max_active;
-        $lc->fuck;
-
+        $lc->init->fuck;
         $pm->finish;
     }
     $pm->wait_all_children;
