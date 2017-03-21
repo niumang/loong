@@ -7,7 +7,7 @@ use Parallel::ForkManager;
 use Loong::Crawler;
 use Carp;
 
-use constant MAX_PROCESS_NUM => 0;
+use constant MAX_PROCESS_NUM => 2;
 
 sub single_crawl {
     my $site = shift;
