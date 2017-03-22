@@ -246,10 +246,8 @@ sub scrape {
     $self->cache_resouce($tx) if $self->is_debug;
     if ( $type && $type =~ qr{^(text|application)/(html|xml|xhtml|javascript)} ) {
         eval { $ret = $self->scraper->scrape( $url, $res, $context ); };
-        if ( $@ || !$ret->{data} ) {
-            $self->log->debug(
-                "解析 html 文档失败: $@, 傻逼网站换代码了,检查下载的html文件吧"
-            );
+        if ( $@ || @{ $ret->{data} } == 0 ) {
+            Carp::croak "解析 html 文档失败: $@, 傻逼网站换代码了,检查下载的html文件吧";
         }
     }
 
